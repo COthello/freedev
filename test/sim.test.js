@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { climate, createBody, heatFluxes, stepBody, dehydrationPct, causeOfDeath, DEFAULT_CLIMATE } from '../src/physics.js';
 import { generateWorld, tileAt } from '../src/world.js';
-import { newGame, perform, actions, envNow, here } from '../src/game.js';
+import { newGame, perform, actions, envNow, here, scheduleStorms, ailments } from '../src/game.js';
 
 const at = (h) => climate(h * 60, DEFAULT_CLIMATE);
 
@@ -100,4 +100,62 @@ test('游戏流程：直奔绿洲可以通关，原地暴晒会死', () => {
   while (!d.over && guard++ < 2000) perform(d, 'rest');
   assert.equal(d.over.win, false);
   assert.ok(JSON.stringify(d).length > 100); // 状态可序列化
+});
+
+test('沙暴：风大、直射光被挡、头两天必有一场', () => {
+  const c = { ...DEFAULT_CLIMATE, storms: [{ start: 14 * 60, end: 17 * 60, peak: 16 }] };
+  const calm = climate(15 * 60, DEFAULT_CLIMATE);
+  const storm = climate(15 * 60, c);
+  assert.equal(storm.storm, 1);
+  assert.ok(storm.wind > 15 && calm.wind < 6);
+  assert.ok(storm.dni < calm.dni * 0.15 && storm.ghi < calm.ghi * 0.4, `ghi ${storm.ghi}`);
+  assert.ok(storm.airT < calm.airT);
+  assert.equal(climate(13 * 60, c).storm, 0);
+  for (let seed = 1; seed <= 50; seed++) {
+    const st = scheduleStorms(seed);
+    assert.ok(st.length > 0 && st[0].start < 2 * 1440, `seed ${seed}`);
+    for (const x of st) assert.ok(x.end - x.start >= 120 && x.peak >= 12 && x.peak <= 20);
+  }
+});
+
+test('沙暴里看不见、会走偏，过后别处的遮阴沟被填平', () => {
+  const g = newGame({ seed: 3, difficulty: 'easy' });
+  perform(g, 'digShelter');
+  const dug = here(g);
+  perform(g, 'move', { dx: 1, dy: 0 });
+  const st = g.climate.storms[0];
+  g.t = st.start + 30; // 直接跳到沙暴中
+  assert.ok(envNow(g).storm > 0.5);
+  const before = g.world.tiles.filter((t) => t.seen).length;
+  let drift = 0;
+  for (let i = 0; i < 12 && !g.over && envNow(g).storm > 0.5; i++) {
+    const p = { ...g.pos };
+    perform(g, 'move', { dx: 1, dy: 0 });
+    if (g.pos.y !== p.y) drift++;
+  }
+  assert.ok(drift > 0, '沙暴中应当有走偏');
+  assert.ok(g.world.tiles.filter((t) => t.seen).length - before <= 13, '沙暴中只能看见脚下');
+  while (!g.over && g.t < st.end + 5) perform(g, 'rest');
+  assert.equal(dug.shelter, false);
+  assert.ok(g.log.some((l) => l.text.includes('沙暴过去了')));
+});
+
+test('夜间动物：蝎子、角蝰、耳廓狐、胡狼都会出现', () => {
+  const seen = { 蝎子: 0, 角蝰: 0, 耳廓狐: 0, 胡狼: 0 };
+  let stung = false;
+  for (let seed = 1; seed <= 40; seed++) {
+    const g = newGame({ seed, difficulty: 'easy' });
+    let guard = 0;
+    while (!g.over && guard++ < 300 && g.t < 3 * 1440) {
+      if (g.inv.water > 0 && dehydrationPct(g.body) > 3) perform(g, 'drink');
+      if (envNow(g).isDay) perform(g, 'wait');
+      else if (guard % 3 === 0) perform(g, 'rest');
+      else perform(g, 'move', { dx: guard % 2 ? 1 : -1, dy: 0 });
+      if (ailments(g).length) stung = true;
+    }
+    for (const k of Object.keys(seen)) if (g.log.some((l) => l.text.includes(k))) seen[k]++;
+  }
+  console.log('animals', seen);
+  for (const k of Object.keys(seen)) assert.ok(seen[k] > 0, k);
+  assert.ok(stung);
 });

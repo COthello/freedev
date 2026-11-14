@@ -29,6 +29,7 @@ export const DEFAULT_CLIMATE = {
   tMax: 43, // 午后最高气温 °C
   vapor: 0.9, // 水汽压 kPa（露点约 5.5°C，几乎不随昼夜变化）
   seed: 1,
+  storms: [], // [{ start, end, peak }]，分钟与 m/s
 };
 
 /**
@@ -55,6 +56,21 @@ export function climate(tMin, c = DEFAULT_CLIMATE) {
     dni = 1361 * Math.pow(0.7, Math.pow(am, 0.678));
     dhi = 0.1 * dni;
   }
+  // —— 沙暴：0 无 → 1 最强，前后各有 20 分钟的渐变 ——
+  let storm = 0;
+  let stormPeak = 0;
+  for (const s of c.storms ?? []) {
+    if (tMin >= s.start && tMin < s.end) {
+      storm = Math.min(1, (tMin - s.start + 1) / 20, (s.end - tMin) / 20);
+      stormPeak = s.peak;
+    }
+  }
+  if (storm > 0) {
+    // 悬浮的沙尘挡掉九成直射光，其中一部分变成散射光
+    const clear = dni * Math.max(0, sinEl) + dhi;
+    dni *= 1 - 0.9 * storm;
+    dhi = dhi * (1 - storm) + 0.22 * clear * storm;
+  }
   const ghi = dni * Math.max(0, sinEl) + dhi;
 
   // —— 气温：05:30 最低，15:00 最高，余弦插值 ——
@@ -69,6 +85,8 @@ export function climate(tMin, c = DEFAULT_CLIMATE) {
     airT = lo + ((hi - lo) * (1 + Math.cos((Math.PI * (h2 - 15)) / 14.5))) / 2;
   }
 
+  if (storm > 0) airT -= 3 * storm; // 沙尘遮日，气温略降
+
   // —— 地表温度：白天被日照烤热，夜间辐射冷却 ——
   const groundT = airT - 4 + 0.03 * ghi;
   const soilT = (c.tMin + c.tMax) / 2; // 沙面下约半米，全天接近日均温
@@ -77,10 +95,12 @@ export function climate(tMin, c = DEFAULT_CLIMATE) {
   const base = 1 + 3 * hash01(c.seed + 7919, day);
   const wind = 0.4 + base * (0.25 + 0.75 * Math.max(0, Math.sin((Math.PI * (hour - 7)) / 12)));
 
+  const windNow = wind + (stormPeak - wind) * storm;
+
   const vapor = c.vapor;
   const rh = clamp((vapor / satVaporKPa(airT)) * 100, 1, 100);
 
-  return { day, hour, sunElev, dni, dhi, ghi, airT, groundT, soilT, wind, vapor, rh, isDay: sinEl > 0 };
+  return { day, hour, sunElev, dni, dhi, ghi, airT, groundT, soilT, wind: storm > 0 ? windNow : wind, vapor, rh, storm, isDay: sinEl > 0 };
 }
 
 /** 根据初始设定创建身体 */

@@ -1,7 +1,7 @@
 // 界面层：把游戏状态画出来，把点击翻译成行动。
 import { createBody, dehydrationPct, currentMass } from './physics.js';
 import { TERRAIN, tileAt } from './world.js';
-import { newGame, perform, actions, moveCost, envNow, here, clock, refreshFlux, BOTTLE_L } from './game.js';
+import { newGame, perform, actions, ailments, moveCost, envNow, here, clock, refreshFlux, BOTTLE_L } from './game.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'born-in-sand-act1';
@@ -17,7 +17,7 @@ function save() {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-    return s && s.version === 1 ? s : null;
+    return s && s.version === 2 ? s : null;
   } catch {
     return null;
   }
@@ -229,6 +229,77 @@ function drawScene() {
     ctx.fill();
   }
 
+  // 夜间动物
+  const sight = state.sight && state.sight.until > state.t ? state.sight.kind : null;
+  if (sight) {
+    const ax = w * 0.3;
+    ctx.fillStyle = dark(sight === 'fennec' ? [226, 196, 150] : sight === 'viper' ? [170, 140, 96] : [70, 52, 40]);
+    ctx.strokeStyle = ctx.fillStyle;
+    if (sight === 'fennec') {
+      ctx.beginPath();
+      ctx.ellipse(ax, gy - 6, 11, 5, 0, 0, 7); // 身体
+      ctx.ellipse(ax + 11, gy - 11, 4.5, 4, 0, 0, 7); // 头
+      ctx.fill();
+      ctx.beginPath(); // 大耳朵
+      ctx.moveTo(ax + 8, gy - 13);
+      ctx.lineTo(ax + 6, gy - 25);
+      ctx.lineTo(ax + 12, gy - 15);
+      ctx.moveTo(ax + 12, gy - 14);
+      ctx.lineTo(ax + 15, gy - 25);
+      ctx.lineTo(ax + 16, gy - 13);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.beginPath(); // 尾巴
+      ctx.moveTo(ax - 10, gy - 6);
+      ctx.quadraticCurveTo(ax - 20, gy - 8, ax - 22, gy - 1);
+      ctx.stroke();
+      ctx.fillRect(ax - 7, gy - 3, 2, 5);
+      ctx.fillRect(ax + 6, gy - 3, 2, 5);
+    } else if (sight === 'viper') {
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(ax - 22, gy + 3);
+      ctx.bezierCurveTo(ax - 12, gy - 6, ax - 6, gy + 10, ax + 4, gy + 1);
+      ctx.bezierCurveTo(ax + 10, gy - 5, ax + 16, gy + 4, ax + 22, gy - 3);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(ax, gy + 2, 6, 3, 0, 0, 7);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.beginPath(); // 翘起的尾刺
+      ctx.moveTo(ax - 5, gy + 1);
+      ctx.quadraticCurveTo(ax - 14, gy - 10, ax - 5, gy - 9);
+      ctx.moveTo(ax + 5, gy + 1); // 螯
+      ctx.lineTo(ax + 11, gy - 3);
+      ctx.moveTo(ax + 5, gy + 3);
+      ctx.lineTo(ax + 12, gy + 4);
+      ctx.stroke();
+    }
+  }
+
+  // 沙暴：土黄色的幕和横飞的沙
+  if (env.storm > 0) {
+    const s = env.storm;
+    ctx.fillStyle = rgb(mix([58, 44, 30], [196, 150, 84], light), 0.86 * s);
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = rgb(mix([120, 96, 66], [236, 206, 150], light), 0.5 * s);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < 90; i++) {
+      const x = ((i * 7919 + state.t * 37) % 1000) / 1000;
+      const y = ((i * 4813 + state.t * 11) % 997) / 997;
+      ctx.moveTo(x * w, y * h);
+      ctx.lineTo(x * w + 26 + (i % 5) * 8, y * h + 3);
+    }
+    ctx.stroke();
+  }
+
+  const coming = state.climate.storms.find((st) => state.t >= st.start - 45 && state.t < st.start);
+  $('storm').hidden = !(env.storm > 0 || coming);
+  $('storm').textContent = env.storm > 0 ? '沙暴' : '沙暴将至';
+
   $('place').textContent = `${TERRAIN[tile.type].name}${tile.shelter ? ' · 遮阴沟' : tile.shade > 0 ? ' · 有阴凉' : ''}`;
 }
 
@@ -281,6 +352,14 @@ function drawMap() {
       }
     }
   }
+  if (envNow(state).storm > 0.5) {
+    ctx.fillStyle = 'rgba(176,138,84,0.93)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#26222e';
+    ctx.font = '600 15px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('沙暴中，辨不清方向', w / 2, h / 2 - c);
+  }
   // 你
   const px = ((VIEW_W - 1) / 2) * c + c / 2;
   const py = ((VIEW_H - 1) / 2) * c + c / 2;
@@ -313,7 +392,10 @@ function renderMeters() {
     meter('失水', p / 15, `${p.toFixed(1)} %`, `${dNote} · 亏缺 ${Math.max(0, b.waterDeficit).toFixed(1)} L，15% 致命`, lv.dehyd >= 3 ? 2 : lv.dehyd >= 2 ? 1 : 0, [2 / 15, 5 / 15, 8 / 15, 11 / 15]) +
     meter('疲劳', b.fatigue / 100, `${Math.round(b.fatigue)}`, lv.tired >= 2 ? '体力耗尽' : lv.tired === 1 ? '很累，走得慢' : '还撑得住', lv.tired) +
     meter('水囊', state.inv.water / BOTTLE_L, `${state.inv.water.toFixed(2)} L`, `容量 ${BOTTLE_L} L${state.inv.sheet ? ' · 带着塑料布' : ''}`, 0) +
-    meter('能量', b.glycogenKcal / 2000, `${Math.round(b.glycogenKcal)} kcal`, `糖原 · 另有脂肪 ${b.fatKg.toFixed(1)} kg · 体重 ${currentMass(b).toFixed(1)} kg`, b.glycogenKcal < 200 ? 1 : 0);
+    meter('能量', b.glycogenKcal / 2000, `${Math.round(b.glycogenKcal)} kcal`, `糖原 · 另有脂肪 ${b.fatKg.toFixed(1)} kg · 体重 ${currentMass(b).toFixed(1)} kg`, b.glycogenKcal < 200 ? 1 : 0) +
+    ailments(state)
+      .map((a) => `<p class="ail">${a}</p>`)
+      .join('');
 }
 
 function renderEnv() {
@@ -325,6 +407,7 @@ function renderEnv() {
     ['太阳高度', `${((e.sunElev * 180) / Math.PI).toFixed(0)}°`],
     ['风速', `${e.wind.toFixed(1)} m/s`],
     ['相对湿度', `${e.rh.toFixed(0)} %`],
+    ['能见度', e.storm > 0.5 ? '不足 5 m' : e.storm > 0 ? '约 200 m' : e.isDay ? '良好' : '夜间，约 1 km'],
   ];
   $('env').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 }
@@ -361,7 +444,8 @@ function renderMoves() {
   $('moves').innerHTML = DIRS.map((d) => {
     const c = moveCost(state, d.dx, d.dy);
     const dis = !c || state.over ? 'disabled' : '';
-    const sub = c ? `${c.dest.seen ? TERRAIN[c.dest.type].name : '未知'} · ${c.minutes} 分钟` : '地图边缘';
+    const blind = envNow(state).storm > 0.5;
+    const sub = c ? `${blind ? '看不见' : c.dest.seen ? TERRAIN[c.dest.type].name : '未知'} · ${blind ? '可能走偏' : `${c.minutes} 分钟`}` : '地图边缘';
     return `<button type="button" id="mv-${d.key}" data-dx="${d.dx}" data-dy="${d.dy}" ${dis}>向${d.label}走 1 km<small>${sub}</small></button>`;
   }).join('');
 }
