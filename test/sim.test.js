@@ -61,20 +61,20 @@ test('第一天内体温保持稳定', () => {
   }
 });
 
-test('世界生成是确定性的，绿洲在 10–14 km 外', () => {
+test('世界生成是确定性的，绿洲在 7–10 km 外', () => {
   const a = generateWorld(42);
   const b = generateWorld(42);
   assert.deepEqual(a, b);
   for (const seed of [1, 2, 3, 99, 12345]) {
     const w = generateWorld(seed);
     const d = Math.hypot(w.oasis.x - w.start.x, w.oasis.y - w.start.y);
-    assert.ok(d >= 9 && d <= 15, `seed ${seed} d=${d}`);
+    assert.ok(d >= 6.5 && d <= 10.5, `seed ${seed} d=${d}`);
     assert.equal(tileAt(w, w.oasis.x, w.oasis.y).type, 'oasis');
     assert.ok(w.tiles.filter((t) => t.type === 'wadi').length > 15);
     const dg = Math.hypot(w.gate.x - w.oasis.x, w.gate.y - w.oasis.y);
-    assert.ok(dg >= 5 && dg <= 9, `seed ${seed} gate ${dg}`);
+    assert.ok(dg >= 3.5 && dg <= 6.5, `seed ${seed} gate ${dg}`);
     assert.equal(tileAt(w, w.gate.x, w.gate.y).gate, true);
-    assert.ok(w.tiles.filter((t) => t.shaft).length >= 2);
+    assert.ok(w.tiles.filter((t) => t.shaft).length >= 1);
   }
 });
 
@@ -87,7 +87,7 @@ test('游戏流程：经绿洲找到入口、清沙、进入地下城可以通�
   while (!g.over && g.act === 1 && guard++ < 600) {
     if (here(g).type === 'oasis') {
       reachedOasis = true;
-      while (!g.over && (g.body.waterDeficit > 0.3 || g.inv.water < 2.9)) perform(g, 'take'); // 喝足、灌满
+      while (!g.over && (g.body.waterDeficit > 0.3 || g.inv.water < 3.9)) perform(g, 'take'); // 喝足、灌满
     }
     if (g.inv.water > 0 && dehydrationPct(g.body) > 3) perform(g, 'drink');
     if (g.levels.heat >= 2) {

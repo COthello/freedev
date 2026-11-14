@@ -19,9 +19,9 @@ import { initAct2, actions2, perform2, env2 } from './act2.js';
 export { BOTTLE_L };
 
 export const DIFFICULTY = {
-  easy: { label: '宽松', water: 3 },
-  normal: { label: '标准', water: 2 },
-  hard: { label: '严酷', water: 1 },
+  easy: { label: '宽松', water: 4, hazard: 0.4 },
+  normal: { label: '标准', water: 3, hazard: 0.7 },
+  hard: { label: '严酷', water: 1.5, hazard: 1 },
 };
 
 const START_MIN = 5 * 60; // 第 1 天 05:00，日出前
@@ -48,13 +48,15 @@ export function newGame(cfg = {}) {
   const diff = DIFFICULTY[cfg.difficulty] ? cfg.difficulty : 'normal';
   const world = generateWorld(seed);
   const state = {
-    version: 4,
+    version: 5,
     name: cfg.name || '无名者',
     difficulty: diff,
     seed,
     t: START_MIN,
     t0: START_MIN,
-    climate: { ...DEFAULT_CLIMATE, seed, storms: scheduleStorms(seed) },
+    climate: { ...DEFAULT_CLIMATE, seed, storms: scheduleStorms(seed).filter((st) => diff === 'hard' || st.start >= 1440) }, // 宽松和标准：第一天不起沙暴
+    hazard: DIFFICULTY[diff].hazard, // 动物和走偏的概率系数
+    clue: null, // 已知的水源方位线索
     body: createBody(cfg),
     world,
     pos: { ...world.start },
@@ -73,7 +75,7 @@ export function newGame(cfg = {}) {
   say(state, `公元 2226 年。${state.name}在沙漠中睁开眼睛。东方刚刚泛白，沙子还是凉的。两百年前这里据说是有河的。`, 'story');
   say(
     state,
-    `身上只有一件长袍、一只 3 L 的水囊（里面有 ${state.inv.water.toFixed(1)} L 水）和一张旧时代留下来的塑料布。地表已经养不活人了——老人们说，活路在地下。但得先找到水。`,
+    `身上只有一件长袍、一只 ${BOTTLE_L} L 的水囊（里面有 ${state.inv.water.toFixed(1)} L 水）和一张旧时代留下来的塑料布。地表已经养不活人了——老人们说，活路在地下。但得先找到水。`,
     'story',
   );
   look(state);
@@ -95,6 +97,30 @@ function look(state) {
   const env = envNow(state);
   const r = env.storm > 0.5 ? 0 : env.isDay ? TERRAIN[tile.type].view : 1;
   reveal(state.world, state.pos.x, state.pos.y, r);
+  if (!env.isDay || env.storm > 0.5) return;
+  // 白天，沙漠里的一点绿色和井圈的影子隔很远就能看见
+  const far = tile.type === 'dune' ? 7 : 5;
+  const o = state.world.oasis;
+  const ot = tileAt(state.world, o.x, o.y);
+  const d = Math.hypot(o.x - state.pos.x, o.y - state.pos.y);
+  if (!ot.seen && d <= far) {
+    ot.seen = true;
+    const dir = bearing(state.pos, o);
+    say(state, `${dir}方的地平线上有一小片绿色，在热浪里一晃一晃。树——有树就有水。约 ${Math.round(d)} km。`, 'hint');
+    state.clue = { dir, what: '看见绿洲在', t: state.t };
+  }
+  for (const t of state.world.tiles) {
+    if (t.shaft && !t.seen && Math.hypot(t.x - state.pos.x, t.y - state.pos.y) <= far - 2) t.seen = true;
+  }
+  // 走近了能看出入口那片岩壁不对劲
+  const g = state.world.gate;
+  const gt = tileAt(state.world, g.x, g.y);
+  const dg = Math.hypot(g.x - state.pos.x, g.y - state.pos.y);
+  if (!gt.gateSpotted && dg > 0 && dg <= r + 1) {
+    gt.gateSpotted = true;
+    gt.seen = true;
+    say(state, `${bearing(state.pos, g)}方约 ${Math.round(dg)} km 处有一片岩壁，根部有一道笔直的暗影——不像天然的东西。`, 'hint');
+  }
 }
 
 function restCtx(state, met, lying) {
@@ -194,7 +220,9 @@ function advance(state, minutes, act) {
     if ((tod === 330 || tod === 1110) && !sleeping) {
       const d = Math.hypot(state.world.oasis.x - state.pos.x, state.world.oasis.y - state.pos.y);
       if (d <= 25 && d > 0) {
-        say(state, `${tod === 330 ? '天刚亮' : '日落时分'}，一群沙鸡低低掠过，朝${bearing(state.pos, state.world.oasis)}方飞去——它们每天都要去喝水。`, 'hint');
+        const dir = bearing(state.pos, state.world.oasis);
+        say(state, `${tod === 330 ? '天刚亮' : '日落时分'}，一群沙鸡低低掠过，朝${dir}方飞去——它们每天都要去喝水。`, 'hint');
+        state.clue = { dir, what: '沙鸡飞向', t: state.t };
       }
     }
     let eventStop = false;
@@ -219,7 +247,9 @@ function advance(state, minutes, act) {
     if (!env.isDay && env.storm === 0) {
       const d = Math.hypot(state.world.oasis.x - state.pos.x, state.world.oasis.y - state.pos.y);
       if (tod === 1380 && !sleeping && d > 0 && d <= 9) {
-        say(state, `夜深了，${bearing(state.pos, state.world.oasis)}方传来胡狼此起彼伏的嚎叫。胡狼离不开水，不会住得离水源太远。`, 'hint');
+        const dir = bearing(state.pos, state.world.oasis);
+        say(state, `夜深了，${dir}方传来胡狼此起彼伏的嚎叫。胡狼离不开水，不会住得离水源太远。`, 'hint');
+        state.clue = { dir, what: '胡狼的嚎叫来自', t: state.t };
       }
       if ((tod === 1260 || tod === 120) && !sleeping && hash01(state.seed + 41, state.t) < 0.5) {
         state.sight = { kind: 'fennec', until: state.t + 40 };
@@ -230,7 +260,7 @@ function advance(state, minutes, act) {
           say(state, '月光下，一只耳廓狐竖着大耳朵看了你一会儿，悄无声息地跑开了。', 'env');
         }
       }
-      if (stationary && state.effects.sting <= state.t && hash01(state.seed + 47, state.t) < SCORPION_RISK[tile.type] / 60) {
+      if (stationary && state.effects.sting <= state.t && hash01(state.seed + 47, state.t) < (SCORPION_RISK[tile.type] * state.hazard) / 60) {
         sting(state, sleeping ? '小腿上一阵火烧似的剧痛把你惊醒——一只蝎子钻进了长袍。伤处又肿又麻，心跳得厉害。' : '手边的沙子里蹿出一只蝎子，在你手背上蜇了一下。伤处又肿又麻，心跳得厉害。');
         eventStop = true;
       }
@@ -263,7 +293,7 @@ function advance(state, minutes, act) {
       }
     }
     state.levels = lv;
-    if (eventStop || (stop && (act.long || (act.kind === 'work' && lv.heat >= 2) || lv.heat >= 3 || lv.dehyd >= 4 || lv.tired >= 2 || lv.cold >= 3))) {
+    if (eventStop || (stop && (act.long || ((act.kind === 'work' || act.kind === 'walk') && lv.heat >= 2) || lv.heat >= 3 || lv.dehyd >= 4 || lv.tired >= 2 || lv.cold >= 3))) {
       interrupted = true;
       break;
     }
@@ -300,7 +330,10 @@ export function moveCost(state, dx, dy) {
   const dest = tileAt(state.world, state.pos.x + dx, state.pos.y + dy);
   if (!dest) return null;
   const tr = TERRAIN[dest.type];
-  return { dest, minutes: Math.round(tr.minutes / speedFactor(state)), met: tr.met };
+  const minutes = Math.round(tr.minutes / speedFactor(state));
+  // 按此刻的天气估算这一段路要流掉多少水
+  const flux = heatFluxes(state.body, envNow(state), { met: tr.met * metMul(state), speed: 1000 / (minutes * 60) });
+  return { dest, minutes, met: tr.met, waterL: (flux.waterLossLh * minutes) / 60 };
 }
 
 /** 收集并装水：先喝到补足亏缺（单次最多 1.5 L），再灌满水壶。返回剩余水量 */
@@ -325,6 +358,38 @@ function packStill(state, tile) {
 }
 
 /** 当前可用的行动列表 */
+/** 此刻最要紧的一两条提醒。只说身体和环境的事实，怎么选由玩家定 */
+export function advice(state) {
+  if (state.over || state.act === 2) return [];
+  const out = [];
+  const env = envNow(state);
+  const tile = here(state);
+  const lv = state.levels;
+  const sun = heatFluxes(state.body, env, { met: 4.5, speed: 0.8 }).waterLossLh;
+  const shade = heatFluxes(state.body, env, { met: 1.2, shade: 0.8 }).waterLossLh;
+  const coming = state.climate.storms.find((st) => state.t >= st.start - 45 && state.t < st.end);
+  if (coming) out.push(env.storm > 0.5 ? '沙暴里走路会走偏，最好原地躲着。岩石的背风面或遮阴沟最稳妥。' : '沙暴快到了。趁还看得见，找岩石背风处，或者就地挖遮阴沟。');
+  if (lv.heat >= 2) out.push('体温过高。立刻停下，到阴凉处休息、喝水，直到体温回到 38°C 以下。');
+  else if (lv.dehyd >= 2 && state.inv.water > 0) out.push('已经明显脱水。水要喝进肚子里才算数，别省在水囊里。');
+  if (!coming) {
+    if (env.isDay && env.airT >= 33) {
+      out.push(`现在赶路每小时失水约 ${sun.toFixed(1)} L，在阴凉处坐着只有 ${shade.toFixed(1)} L。${tile.shelter || tile.shade > 0.5 ? '这里有阴凉，可以歇到日落再走。' : '找岩石阴影，或者挖遮阴沟，歇到日落再走。'}`);
+    } else {
+      out.push(`现在凉快，赶路每小时只失水约 ${sun.toFixed(1)} L——这是走路的时候。`);
+    }
+  }
+  const oasisSeen = tileAt(state.world, state.world.oasis.x, state.world.oasis.y).visited;
+  if (oasisSeen) {
+    out.push('绿洲的水是从地下流出来的。在绿洲“搜索”，看水从哪个方向来，再沿着竖井走。');
+  } else if (state.clue) {
+    out.push(`线索：${state.clue.what}${state.clue.dir}方（${Math.max(0, Math.round((state.t - state.clue.t) / 60))} 小时前）。绿洲离出生点不到 10 km。`);
+  } else {
+    out.push('还不知道水在哪。05:30 天亮和 18:30 日落时醒着，看沙鸡往哪个方向飞。');
+  }
+  if (tile.type === 'wadi' && !tile.searched && !oasisSeen) out.push('这是干河床，雨季的水曾从这里流向低处。“搜索”能知道沙下有没有潮气。');
+  return out.slice(0, 3);
+}
+
 /** 当前的伤情，供界面显示 */
 export function ailments(state) {
   const out = [];
@@ -384,7 +449,7 @@ export function perform(state, id, arg) {
       let c = moveCost(state, arg.dx, arg.dy);
       if (!c) return say(state, '那边是地图之外的无尽沙海。', 'warn');
       const env0 = envNow(state);
-      if (env0.storm > 0.5 && hash01(state.seed + 13, state.t) < 0.5) {
+      if (env0.storm > 0.5 && hash01(state.seed + 13, state.t) < 0.5 * state.hazard) {
         // 沙暴里没有参照物，人会不知不觉走偏
         const sgn = hash01(state.seed + 17, state.t) < 0.5 ? 1 : -1;
         const alt = arg.dx !== 0 ? moveCost(state, 0, sgn) : moveCost(state, sgn, 0);
@@ -409,7 +474,7 @@ export function perform(state, id, arg) {
       // 夜里沙面上有伏击的角蝰
       if (!env0.isDay && env0.storm === 0 && c.dest.type !== 'oasis' && state.effects.bite <= state.t) {
         const risk = c.dest.type === 'wadi' || c.dest.type === 'rock' ? 0.03 : 0.02;
-        if (hash01(state.seed + 29, state.t) < risk) {
+        if (hash01(state.seed + 29, state.t) < risk * state.hazard) {
           state.sight = { kind: 'viper', until: state.t + 30 };
           if (hash01(state.seed + 31, state.t) < 0.35) {
             state.effects.bite = state.t + 1440;
@@ -427,6 +492,8 @@ export function perform(state, id, arg) {
         c.dest.visited = true;
         if (c.dest.type === 'oasis') {
           say(state, '棕榈树下有一汪泉水。你跪下去，把脸埋进水里。喝够了才注意到：水是从一截半埋的混凝土涵管里流出来的，管口的铁箅子早就锈穿了。这不是天然的泉——是地下的什么地方在往外溢水。', 'good');
+        } else if (c.dest.gate) {
+          say(state, '这片岩壁的根部有一道太直的线，不像是风蚀出来的。值得搜一搜。', 'hint');
         } else if (c.dest.shaft && env0.storm <= 0.5) {
           say(state, '沙丘间露出一圈开裂的混凝土井圈，中间是一口笔直的竖井，井壁上嵌着一排锈断的爬梯。井口往外吹着风，深处隐约有流水声，还有一种低低的、不像是风的嗡鸣。', 'hint');
         }
@@ -447,7 +514,7 @@ export function perform(state, id, arg) {
       break;
     case 'wait': {
       const tod = state.t % 1440;
-      const target = envNow(state).isDay ? 1120 : 320;
+      const target = envNow(state).isDay ? 1120 : 335; // 等到天亮后一刻钟，正好看见沙鸡
       const mins = ((target - tod + 1440) % 1440) || 1440;
       const r = advance(state, mins, { met: 1.2, kind: 'rest', long: true });
       if (!state.over) say(state, r.interrupted ? `休息了 ${fmtDur(r.elapsed)}，身体的状况让你无法再等下去。` : `休息了 ${fmtDur(r.elapsed)}。`);
@@ -462,7 +529,7 @@ export function perform(state, id, arg) {
       advance(state, 30, { met: 2.5, kind: 'work' });
       if (state.over) return;
       tile.searched = true;
-      if (tile.type === 'rock' && state.effects.sting <= state.t && hash01(state.seed + 53, state.t) < 0.06) {
+      if (tile.type === 'rock' && state.effects.sting <= state.t && hash01(state.seed + 53, state.t) < 0.06 * state.hazard) {
         sting(state, '你把手伸进石缝，指尖一阵剧痛——石头下面躲着一只蝎子。伤处又肿又麻，心跳得厉害。');
       }
       const gate = state.world.gate;

@@ -82,7 +82,7 @@ export function generateWorld(seed) {
   let oasis;
   for (let i = 0; i < 200 && !oasis; i++) {
     const ang = rng() * Math.PI * 2;
-    const d = 10 + rng() * 4;
+    const d = 7 + rng() * 3;
     const ox = Math.round(start.x + Math.cos(ang) * d);
     const oy = Math.round(start.y + Math.sin(ang) * d);
     if (ox >= 2 && oy >= 2 && ox < size - 2 && oy < size - 2) oasis = { x: ox, y: oy };
@@ -121,17 +121,17 @@ export function generateWorld(seed) {
   Object.assign(s, { type: 'flat', shade: 0, plants: 0, pool: 0, waterDepth: null });
 
   // 地下世界：绿洲的水其实是从一条旧时代的涵洞里溢出来的，涵洞另一头就是地下世界。
-  // 入口在绿洲另一侧 6–8 km 外的岩壁下，沿途每隔 2 km 有一口通风竖井。
+  // 入口在绿洲另一侧 4–6 km 外的岩壁下，沿途每隔 2 km 有一口通风竖井。
   const away = Math.atan2(oasis.y - start.y, oasis.x - start.x);
   let gate;
   for (let i = 0; i < 2000 && !gate; i++) {
     const ang = away + (rng() - 0.5) * (i < 200 ? 2 : Math.PI * 2);
-    const d = 6 + rng() * 2;
+    const d = 4 + rng() * 2;
     const gx = Math.round(oasis.x + Math.cos(ang) * d);
     const gy = Math.round(oasis.y + Math.sin(ang) * d);
     const t = tileAt(world, gx, gy);
     if (!t || gx < 2 || gy < 2 || gx >= size - 2 || gy >= size - 2) continue;
-    if (t.type === 'wadi' || Math.hypot(gx - start.x, gy - start.y) < 8) continue;
+    if (t.type === 'wadi' || Math.hypot(gx - start.x, gy - start.y) < 6) continue;
     gate = { x: gx, y: gy };
   }
   if (!gate) gate = { x: Math.min(size - 3, Math.max(2, oasis.x + (oasis.x < size / 2 ? 6 : -6))), y: oasis.y };

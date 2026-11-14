@@ -3,7 +3,7 @@ import { createBody, dehydrationPct, currentMass, climate } from './physics.js';
 import { CITY, DISTRICTS, EVENTS, lightsOn } from './city.js';
 import { systems, residency } from './act2.js';
 import { TERRAIN, tileAt } from './world.js';
-import { newGame, perform, actions, ailments, moveCost, envNow, here, clock, refreshFlux, BOTTLE_L } from './game.js';
+import { newGame, perform, actions, advice, ailments, moveCost, envNow, here, clock, refreshFlux, BOTTLE_L } from './game.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'born-in-sand-act1';
@@ -19,7 +19,7 @@ function save() {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-    return s && s.version === 4 ? s : null;
+    return s && s.version === 5 ? s : null;
   } catch {
     return null;
   }
@@ -521,7 +521,7 @@ function drawMap() {
         ctx.arc(x + c / 2, y + c / 2, c * 0.14, 0, 7);
         ctx.stroke();
       }
-      if (t.gateFound) {
+      if (t.gateFound || t.gateSpotted) {
         ctx.fillStyle = '#17141f';
         ctx.fillRect(x + c * 0.36, y + c * 0.3, c * 0.28, c * 0.42);
       }
@@ -652,7 +652,7 @@ function renderMoves() {
     const c = moveCost(state, d.dx, d.dy);
     const dis = !c || state.over ? 'disabled' : '';
     const blind = envNow(state).storm > 0.5;
-    const sub = c ? `${blind ? '看不见' : c.dest.seen ? TERRAIN[c.dest.type].name : '未知'} · ${blind ? '可能走偏' : `${c.minutes} 分钟`}` : '地图边缘';
+    const sub = c ? `${blind ? '看不见' : c.dest.seen ? TERRAIN[c.dest.type].name : '未知'} · ${blind ? '可能走偏' : `${c.minutes} 分钟 · 失水 ${c.waterL.toFixed(2)} L`}` : '地图边缘';
     return `<button type="button" id="mv-${d.key}" data-dx="${d.dx}" data-dy="${d.dy}" ${dis}>向${d.label}走 1 km<small>${sub}</small></button>`;
   }).join('');
 }
@@ -725,6 +725,7 @@ function render() {
     renderMoves();
     renderActions();
   }
+  $('advice').innerHTML = advice(state).map((a) => `<li>${a}</li>`).join('');
   renderMeters();
   renderEnv();
   renderFlux();

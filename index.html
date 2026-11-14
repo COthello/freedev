@@ -111,6 +111,10 @@ section { min-width: 0; }
 #log .good { color: var(--ok); } #log .hint { color: var(--night); } #log .story { font-family: var(--display); }
 #log .env { color: var(--muted); }
 #log .talk { border-left: 2px solid var(--line); padding-left: 8px; }
+#advice { list-style: none; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-size: 13.5px; display: flex; flex-direction: column; gap: 6px; }
+#advice:empty { display: none; }
+.tips { margin: 0 0 14px; padding-left: 1.2em; max-width: 34em; }
+.tips li { margin-bottom: 4px; }
 h3 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.08em; margin: 14px 0 6px; }
 #locDesc { margin: 0; max-width: 36em; }
 .span { grid-column: 1 / -1; }
@@ -150,13 +154,20 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.0
       <p>身体按真实的热平衡运转：代谢产热、日照、对流与辐射、出汗蒸发。失水达到体重的 15%，或核心体温越过 42°C，都会致命。</p>
       <p>午后常起沙暴，夜里沙面上有蝎子和角蝰。十几公里外有一处绿洲，先活着走到那里。</p>
       <p>老人们说，旧时代的人在地下留了一个世界，世界真正的秘密也在那里。入口被沙埋着，没有人知道在哪——但水知道。找到入口，走进去，第一幕结束，第二幕在地下开始。</p>
+      <h2>活下来的四条经验</h2>
+      <ol class="tips">
+        <li>你在日出前醒来，头三个小时是凉的。05:30 看清沙鸡往哪飞，立刻朝那边走。</li>
+        <li>上午九点以后别在太阳下赶路。找岩石阴影或挖遮阴沟，歇到日落。</li>
+        <li>水要喝掉，不要省。渴了就喝。</li>
+        <li>爬上沙丘看得远：白天隔着五到七公里就能看见绿洲的树。</li>
+      </ol>
       <form class="form" id="form">
         <label class="wide">名字<input id="f-name" maxlength="12" value="阿洛" autocomplete="off"></label>
         <label>性别<select id="f-sex"><option value="male">男</option><option value="female">女</option></select></label>
         <label>年龄<input id="f-age" type="number" min="16" max="70" value="26"></label>
         <label>身高 cm<input id="f-height" type="number" min="140" max="210" value="172"></label>
         <label>体重 kg<input id="f-mass" type="number" min="40" max="130" value="68"></label>
-        <label>随身的水<select id="f-diff"><option value="easy">宽松 · 3 L</option><option value="normal" selected>标准 · 2 L</option><option value="hard">严酷 · 1 L</option></select></label>
+        <label>随身的水<select id="f-diff"><option value="easy" selected>宽松 · 4 L，动物少</option><option value="normal">标准 · 3 L</option><option value="hard">严酷 · 1.5 L，第一天就可能起沙暴</option></select></label>
         <label>沙漠编号（留空则随机）<input id="f-seed" inputmode="numeric" placeholder="随机" autocomplete="off"></label>
         <button class="primary wide" type="submit">睁开眼睛</button>
       </form>
@@ -174,7 +185,7 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.0
     <div id="sceneBox"><canvas id="scene" aria-label="此刻的沙漠"></canvas><span id="place"></span></div>
     <div class="col">
       <section id="vitals"><h2>身体</h2><div id="meters"></div></section>
-      <section id="actionsBox"><h2>行动</h2><div class="acts" id="acts"></div></section>
+      <section id="actionsBox"><ul id="advice"></ul><h2>行动</h2><div class="acts" id="acts"></div></section>
       <section id="phys">
         <div class="cols">
           <div><h2>环境</h2><dl class="readout" id="env"></dl></div>

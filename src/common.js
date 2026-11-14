@@ -1,7 +1,7 @@
 // 两幕共用的小工具：日志、身体警报等级、文字格式。
 import { dehydrationPct } from './physics.js';
 
-export const BOTTLE_L = 3;
+export const BOTTLE_L = 4;
 
 export function say(state, text, kind = 'info') {
   state.log.push({ t: state.t, text, kind });
