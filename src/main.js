@@ -5,9 +5,17 @@ import { systems, residency } from './act2.js';
 import { TERRAIN, tileAt } from './world.js';
 import { newGame, perform, actions, advice, ailments, moveCost, envNow, here, clock, refreshFlux, BOTTLE_L } from './game.js';
 
+import { create as createView3D } from './view3d.js';
+
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'born-in-sand-act1';
 let state = null;
+let view3d = null; // 3D 视角；没有 WebGL 时保持 null，用 2D 画面
+try {
+  view3d = createView3D(document.getElementById('scene3d'));
+} catch {
+  view3d = null;
+}
 
 // —— 存档 ——
 function save() {
@@ -712,6 +720,8 @@ function render() {
   $('time').textContent = c.text;
   const city = state.act === 2;
   $('scene').classList.toggle('city', city);
+  $('scene3d').hidden = city || !view3d;
+  $('scene').hidden = !city && !!view3d;
   $('surfaceMap').hidden = city;
   $('cityPanel').hidden = !city;
   $('sysBox').hidden = !city;
@@ -721,6 +731,10 @@ function render() {
     renderCity();
   } else {
     drawScene();
+    if (view3d) {
+      view3d.sync(state, envNow(state));
+      $('place').textContent += ` · 面朝${view3d.facing()} · 拖动画面环顾四周`;
+    }
     drawMap();
     renderMoves();
     renderActions();

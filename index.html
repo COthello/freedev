@@ -80,6 +80,7 @@ button small { display: block; color: var(--muted); font-size: 12px; }
 
 /* —— 游戏 —— */
 #scene { width: 100%; aspect-ratio: 16 / 5; min-height: 150px; max-width: 100%; display: block; border-radius: 4px; }
+#scene3d { width: 100%; aspect-ratio: 16 / 7; min-height: 200px; max-width: 100%; display: block; border-radius: 4px; touch-action: pan-y; cursor: grab; }
 #play { display: grid; gap: 20px 24px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 #sceneBox { grid-column: 1 / -1; position: relative; }
 .col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
@@ -133,6 +134,7 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.0
   .col { display: contents; }
   #vitals { order: 1; } #actionsBox { order: 2; } #mapBox { order: 3; } #logBox { order: 4; } #phys { order: 5; }
   #scene { aspect-ratio: 16 / 8; }
+  #scene3d { aspect-ratio: 4 / 3; }
   #scene.city { aspect-ratio: 4 / 3.6; }
   h1 { font-size: 24px; }
 }
@@ -182,7 +184,7 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.0
   <div id="end" hidden></div>
 
   <div id="play" hidden>
-    <div id="sceneBox"><canvas id="scene" aria-label="此刻的沙漠"></canvas><span id="place"></span></div>
+    <div id="sceneBox"><canvas id="scene3d" aria-label="主人公眼中的沙漠，拖动可以环顾四周" hidden></canvas><canvas id="scene" aria-label="此刻的沙漠"></canvas><span id="place"></span></div>
     <div class="col">
       <section id="vitals"><h2>身体</h2><div id="meters"></div></section>
       <section id="actionsBox"><ul id="advice"></ul><h2>行动</h2><div class="acts" id="acts"></div></section>
@@ -215,6 +217,7 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.0
     </div>
   </div>
 </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>
