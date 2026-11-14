@@ -1,7 +1,11 @@
-// 第一幕的 3D 视角：用 three.js 实时渲染主人公眼中的沙漠。
+// 第一幕的 3D 视角：用 three.js 实时渲染主人公眼中的沙漠，像素风格。
+// 画面先以很低的分辨率渲染，再用有限色阶加有序抖动处理，最后放大成大像素。
 // 只负责“看”：地形、天空、光照都从游戏状态和物理模型读出来，不改任何状态。
 // 依赖全局 THREE（由页面从 CDN 载入）；没有 WebGL 时 create() 返回 null，界面退回 2D 画面。
 
+import { hash01 } from './physics.js';
+
+const PIXELS_WIDE = 320; // 画面横向只有这么多像素
 const T = 60; // 一格（游戏里的 1 km）在画面里压缩成 60 m，否则走一格什么都不变
 const EYE = { stand: 1.7, walk: 1.7, work: 1.3, sit: 0.9, sleep: 0.35 };
 const ELEV = { flat: 0, dune: 3, rock: 2, wadi: -2.5, oasis: -3 };
@@ -80,11 +84,37 @@ export function create(canvas) {
   if (!THREE) return null;
   let renderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
   } catch {
     return null;
   }
-  renderer.setPixelRatio(Math.min(2, globalThis.devicePixelRatio || 1));
+  renderer.setPixelRatio(1);
+  renderer.shadowMap.enabled = true;
+
+  // —— 像素化后处理：低分辨率画面 → 每个通道压成几级色阶，级与级之间用 4×4 拜耳矩阵抖动 ——
+  const target = new THREE.WebGLRenderTarget(PIXELS_WIDE, 140, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  const postScene = new THREE.Scene();
+  const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  postScene.add(
+    new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        uniforms: { tex: { value: target.texture }, levels: { value: 10 } },
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: `
+          uniform sampler2D tex; uniform float levels; varying vec2 vUv;
+          float b2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
+          float b4(vec2 a) { return b2(0.5 * a) * 0.25 + b2(a); }
+          void main() {
+            vec3 c = texture2D(tex, vUv).rgb;
+            float d = b4(gl_FragCoord.xy);
+            gl_FragColor = vec4(floor(c * levels + d) / levels, 1.0);
+          }`,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    ),
+  );
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xffffff, 10, 400);
@@ -93,6 +123,10 @@ export function create(canvas) {
 
   const sun = new THREE.DirectionalLight(0xffffff, 1);
   const hemi = new THREE.HemisphereLight(0xffffff, 0x886644, 0.6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 500 });
+  sun.shadow.bias = -0.002;
   scene.add(sun, sun.target, hemi);
 
   // 天穹：随相机移动的大球，顶点颜色从地平线过渡到天顶
@@ -109,9 +143,30 @@ export function create(canvas) {
   }
   const starGeo = new THREE.BufferGeometry();
   starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false, transparent: true, depthWrite: false }));
+  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 1, sizeAttenuation: false, fog: false, transparent: true, depthWrite: false }));
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(20, 12, 8), new THREE.MeshBasicMaterial({ color: 0xdfe4f2, fog: false, transparent: true }));
+  moon.position.set(420, 640, -520);
+  // 地平线上的远山和高空的薄云，给画面一点纵深
+  const farMat = new THREE.MeshBasicMaterial({ color: 0x8a7a6a, fog: false });
+  const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, transparent: true, opacity: 0.5, depthWrite: false });
   const skyGroup = new THREE.Group();
-  skyGroup.add(sky, stars, halo, sunDisc);
+  skyGroup.add(sky, stars, halo, sunDisc, moon);
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + hash(i, 6, 3);
+    const w = 140 + hash(i, 7, 3) * 220;
+    const hgt = 26 + hash(i, 8, 3) * 60;
+    const mesa = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, 60), farMat);
+    mesa.position.set(Math.cos(a) * 1000, hgt / 2 - 14, Math.sin(a) * 1000);
+    mesa.rotation.y = -a + Math.PI / 2;
+    skyGroup.add(mesa);
+    if (i % 2) {
+      const cloud = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), cloudMat);
+      cloud.position.set(Math.cos(a + 0.4) * 880, 230 + hash(i, 9, 3) * 260, Math.sin(a + 0.4) * 880);
+      cloud.scale.set(150 + hash(i, 10, 3) * 120, 7, 50);
+      cloud.rotation.y = -a;
+      skyGroup.add(cloud);
+    }
+  }
   scene.add(skyGroup);
 
   // 沙暴里横飞的沙粒
@@ -119,7 +174,7 @@ export function create(canvas) {
   for (let i = 0; i < 700; i++) dustPos.set([(hash(i, 3, 9) - 0.5) * 60, hash(i, 4, 9) * 8, (hash(i, 5, 9) - 0.5) * 60], i * 3);
   const dustGeo = new THREE.BufferGeometry();
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xe8cf9a, size: 0.12, transparent: true, opacity: 0 }));
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xe8cf9a, size: 0.22, transparent: true, opacity: 0 }));
   scene.add(dust);
 
   const mat = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
@@ -135,6 +190,18 @@ export function create(canvas) {
     dark: new THREE.MeshBasicMaterial({ color: 0x0c0a12 }),
     metal: mat(0x59606a),
     sand: mat(0xd9b676),
+    pebble: mat(0x8a7868, { flatShading: true }),
+    straw: mat(0xb0a060, { flatShading: true }),
+    bush: mat(0x7a8450, { flatShading: true }),
+    asphalt: mat(0x55524e),
+    paint: mat(0xd8d2c0),
+    rust: mat(0x8a5a3a, { flatShading: true }),
+    panel: new THREE.MeshPhongMaterial({ color: 0x24406e, shininess: 80, flatShading: true }),
+    brick: mat(0xa8684a, { flatShading: true }),
+    bone: mat(0xe6dcc8, { flatShading: true }),
+    fur: mat(0xdcc090, { flatShading: true }),
+    scale: mat(0xb89a60, { flatShading: true }),
+    chitin: mat(0x3a2a20, { flatShading: true }),
     sheet: new THREE.MeshPhongMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.55, shininess: 120 }),
     cloth: mat(0xe8e0d0, { side: THREE.DoubleSide }),
   };
@@ -147,6 +214,43 @@ export function create(canvas) {
     cone: new THREE.ConeGeometry(1, 1, 5),
     disc: new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2),
   };
+
+  // 脚下四十米内的碎石和枯草。两套轮换：走到下一格时，上一格的那一套先留着，免得突然消失
+  const NEAR = { pebble: 420, tuft: 320 };
+  const fields = [0, 1].map(() => {
+    const p = new THREE.InstancedMesh(G.rock, M.pebble, NEAR.pebble);
+    const t = new THREE.InstancedMesh(G.cone, M.straw, NEAR.tuft);
+    p.castShadow = t.castShadow = true;
+    p.frustumCulled = t.frustumCulled = false;
+    scene.add(p, t);
+    return { p, t };
+  });
+  let fieldIdx = 0;
+  const DENSITY = { flat: [0.8, 0.35], dune: [0.06, 0.04], rock: [1, 0.15], wadi: [0.6, 1], oasis: [0.2, 1] };
+  function fillField(f, tile) {
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const cx = (tile.x + 0.5) * T;
+    const cz = (tile.y + 0.5) * T;
+    const [dp, dt] = DENSITY[tile.type];
+    const place = (inst, n, dens, salt, size) => {
+      for (let i = 0; i < n; i++) {
+        const on = hash(tile.x * 131 + i, tile.y, salt) < dens;
+        const a = hash(i, tile.x, salt + 1) * Math.PI * 2;
+        const r = 2.5 + 40 * Math.pow(hash(i, tile.y, salt + 2), 0.75);
+        const x = cx + Math.cos(a) * r;
+        const z = cz + Math.sin(a) * r;
+        const [sx, sy, sz] = on ? size(hash(i, tile.x + tile.y, salt + 3)) : [0, 0, 0];
+        e.set(0, hash(i, 5, salt) * 6.3, 0);
+        m4.compose(new THREE.Vector3(x, terrain.height(x, z) + sy * 0.3, z), q.setFromEuler(e), new THREE.Vector3(sx, sy, sz));
+        inst.setMatrixAt(i, m4);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+    };
+    place(f.p, NEAR.pebble, dp, 201, (u) => [0.1 + u * u * 0.9, 0.07 + u * u * 0.5, 0.1 + u * 0.6]);
+    place(f.t, NEAR.tuft, dt, 301, (u) => [0.14 + u * 0.2, 0.5 + u * 0.9, 0.14 + u * 0.2]);
+  }
 
   let terrain = null;
   let staticGroup = null;
@@ -183,14 +287,95 @@ export function create(canvas) {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.computeVertexNormals();
-    staticGroup.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true })));
+    const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    ground.receiveShadow = true;
+    staticGroup.add(ground);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const put = (inst, i, x, z, sx, sy, sz, lift = 0) => {
+      e.set(hash(i, 1, 77) * 0.6, hash(i, 2, 77) * 6.3, hash(i, 3, 77) * 0.6);
+      m4.compose(new THREE.Vector3(x, terrain.height(x, z) + lift, z), q.setFromEuler(e), new THREE.Vector3(sx, sy, sz));
+      inst.setMatrixAt(i, m4);
+    };
+
+    // 满地的碎石和枯草：每一格都有，让近处的地面不是一片平涂
+    const stony = world.tiles.filter((t) => t.type !== 'dune' && t.type !== 'oasis');
+    const pebbles = new THREE.InstancedMesh(G.rock, M.pebble, stony.length * 5);
+    stony.forEach((t, k) => {
+      for (let j = 0; j < 5; j++) {
+        const s0 = 0.12 + hash(t.x, t.y, j + 60) * (t.type === 'rock' ? 0.9 : 0.4);
+        put(pebbles, k * 5 + j, (t.x + hash(t.x, t.y, j + 70)) * T, (t.y + hash(t.x, t.y, j + 80)) * T, s0 * 1.3, s0 * 0.7, s0, s0 * 0.2);
+      }
+    });
+    pebbles.castShadow = true;
+    const grassy = world.tiles.filter((t) => t.type === 'flat' || t.type === 'wadi');
+    const tufts = new THREE.InstancedMesh(G.cone, M.straw, grassy.length * 4);
+    const bushes = new THREE.InstancedMesh(G.ball, M.bush, grassy.length * 2);
+    grassy.forEach((t, k) => {
+      const lush = t.type === 'wadi' ? 1 : 0.35;
+      for (let j = 0; j < 4; j++) {
+        const on = hash(t.x, t.y, j + 90) < lush;
+        const s0 = on ? 0.25 + hash(t.x, t.y, j + 100) * 0.35 : 0;
+        put(tufts, k * 4 + j, (t.x + hash(t.x, t.y, j + 110)) * T, (t.y + hash(t.x, t.y, j + 120)) * T, s0, s0 * 2.2, s0, s0);
+      }
+      for (let j = 0; j < 2; j++) {
+        const on = hash(t.x, t.y, j + 130) < lush * 0.8;
+        const s0 = on ? 0.5 + hash(t.x, t.y, j + 140) * 0.7 : 0;
+        put(bushes, k * 2 + j, (t.x + hash(t.x, t.y, j + 150)) * T, (t.y + hash(t.x, t.y, j + 160)) * T, s0, s0 * 0.7, s0, s0 * 0.4);
+      }
+    });
+    tufts.castShadow = bushes.castShadow = true;
+    staticGroup.add(pebbles, tufts, bushes);
+
+    // 旧时代的遗物：和“搜索”时翻到的是同一批，位置由沙漠编号决定
+    const add = (...o) => {
+      for (const x of o) {
+        x.castShadow = true;
+        staticGroup.add(x);
+      }
+    };
+    for (const t of world.tiles) {
+      if (t.type !== 'flat' && t.type !== 'dune') continue;
+      const kind = Math.floor(hash01(world.seed + 61, t.x * 97 + t.y) * 6 * 2.5);
+      if (kind > 5) continue;
+      const x = (t.x + 0.5) * T + 9;
+      const z = (t.y + 0.5) * T - 11;
+      const y = terrain.height(x, z);
+      if (kind === 0) {
+        // 一段沥青路面和褪色的虚线
+        const road = mesh(G.box, M.asphalt, x, y + 0.05, z, 30, 0.12, 5);
+        road.rotation.y = 0.5;
+        add(road);
+        for (let j = -2; j <= 2; j++) add(mesh(G.box, M.paint, x + Math.cos(0.5) * j * 5, y + 0.13, z - Math.sin(0.5) * j * 5, 2, 0.02, 0.25).rotateY(0.5));
+      } else if (kind === 1) {
+        // 太阳能板的残架
+        for (let j = 0; j < 4; j++) {
+          const px = x + j * 3.4;
+          add(mesh(G.cyl, M.rust, px, y + 0.8, z, 0.08, 1.8, 0.08));
+          if (j !== 2) add(mesh(G.box, M.panel, px, y + 1.7, z, 3, 0.08, 1.8).rotateX(0.5 + j * 0.1));
+        }
+      } else if (kind === 2) {
+        // 路牌
+        add(mesh(G.cyl, M.rust, x, y + 1.5, z, 0.07, 3.2, 0.07), mesh(G.box, M.rust, x + 0.2, y + 2.7, z, 2.4, 0.9, 0.06).rotateZ(-0.12));
+      } else if (kind === 3) {
+        // 一副骆驼的骨架
+        add(mesh(G.box, M.bone, x, y + 0.5, z, 2.2, 0.16, 0.16).rotateZ(0.1));
+        for (let j = 0; j < 6; j++) add(mesh(G.tube, M.bone, x - 0.8 + j * 0.32, y + 0.3, z, 0.42, 0.05, 0.42).rotateZ(Math.PI / 2));
+        add(mesh(G.rock, M.bone, x + 1.5, y + 0.3, z + 0.2, 0.32, 0.26, 0.5));
+      } else if (kind === 4) {
+        // 倒伏的水泥电杆
+        add(mesh(G.cyl, M.concrete, x, y + 0.3, z, 0.22, 11, 0.22).rotateZ(1.5), mesh(G.cyl, M.concrete, x - 6.5, y + 1, z + 1, 0.24, 2.4, 0.24).rotateZ(0.2));
+      } else {
+        // 半堵砖墙
+        add(mesh(G.box, M.brick, x, y + 0.9, z, 6, 2, 0.4), mesh(G.box, M.brick, x + 3.2, y + 0.4, z + 1.4, 0.4, 1, 3), mesh(G.box, M.brick, x - 2, y + 2.1, z, 1.6, 0.5, 0.4));
+      }
+    }
 
     // 岩石：每格几块大石，用实例化一次画完
     const rocks = world.tiles.filter((t) => t.type === 'rock' && !t.gate);
     const inst = new THREE.InstancedMesh(G.rock, M.rock, rocks.length * 4);
-    const m4 = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
+    inst.castShadow = true;
     rocks.forEach((t, k) => {
       const [cx, cz] = center(t);
       for (let j = 0; j < 4; j++) {
@@ -253,9 +438,33 @@ export function create(canvas) {
     }
   }
 
+  /** 夜里遇到的动物，出现在面前几米处 */
+  function animal(kind, x, z) {
+    const y = terrain.height(x, z);
+    const out = [];
+    if (kind === 'fennec') {
+      out.push(mesh(G.box, M.fur, x, y + 0.28, z, 0.55, 0.22, 0.2), mesh(G.box, M.fur, x + 0.34, y + 0.4, z, 0.2, 0.18, 0.18));
+      out.push(mesh(G.cone, M.fur, x + 0.3, y + 0.62, z - 0.07, 0.07, 0.28, 0.04), mesh(G.cone, M.fur, x + 0.3, y + 0.62, z + 0.07, 0.07, 0.28, 0.04));
+      out.push(mesh(G.box, M.fur, x - 0.42, y + 0.24, z, 0.36, 0.1, 0.1).rotateZ(-0.4));
+      for (const [ox, oz] of [[0.2, 0.07], [0.2, -0.07], [-0.2, 0.07], [-0.2, -0.07]]) out.push(mesh(G.box, M.fur, x + ox, y + 0.09, z + oz, 0.05, 0.2, 0.05));
+    } else if (kind === 'viper') {
+      for (let j = 0; j < 9; j++) out.push(mesh(G.box, M.scale, x - 0.8 + j * 0.2, y + 0.05, z + Math.sin(j * 1.1) * 0.22, 0.24, 0.08, 0.1).rotateY(Math.cos(j * 1.1) * 0.8));
+      out.push(mesh(G.box, M.scale, x + 1.05, y + 0.07, z + 0.1, 0.16, 0.09, 0.14));
+    } else {
+      out.push(mesh(G.box, M.chitin, x, y + 0.05, z, 0.2, 0.06, 0.12));
+      for (let j = 0; j < 4; j++) out.push(mesh(G.box, M.chitin, x - 0.12 - j * 0.04, y + 0.08 + j * 0.06, z, 0.07, 0.05, 0.05));
+      out.push(mesh(G.box, M.chitin, x + 0.16, y + 0.05, z + 0.1, 0.12, 0.03, 0.04), mesh(G.box, M.chitin, x + 0.16, y + 0.05, z - 0.1, 0.12, 0.03, 0.04));
+    }
+    return out;
+  }
+
   /** 会随游戏变化的小物件：遮阴沟、蒸馏器、水坑、植物、闸门 */
   function buildDynamic(state) {
     dynamic.clear();
+    if (state.sight && state.sight.until > state.t) {
+      const near = state.sight.kind === 'scorpion' ? 1.6 : 5;
+      dynamic.add(...animal(state.sight.kind, cam.tx - Math.sin(cam.tyaw) * near, cam.tz - Math.cos(cam.tyaw) * near));
+    }
     for (const t of state.world.tiles) {
       if (!(t.shelter || t.still || t.well || t.plants > 0 || t.gate || (t.poolFound && t.pool > 0.01))) continue;
       const [cx, cz] = center(t);
@@ -305,6 +514,10 @@ export function create(canvas) {
     cam.tx = (state.pos.x + 0.5) * T;
     cam.tz = (state.pos.y + 0.5) * T;
     cam.teye = EYE[state.posture] ?? 1.7;
+    if (!last || last.x !== state.pos.x || last.y !== state.pos.y) {
+      fieldIdx = 1 - fieldIdx;
+      fillField(fields[fieldIdx], tile);
+    }
     if (last && (last.x !== state.pos.x || last.y !== state.pos.y)) {
       // 面朝刚走的方向
       const want = Math.atan2(-(state.pos.x - last.x), -(state.pos.y - last.y));
@@ -357,7 +570,16 @@ export function create(canvas) {
     sunDisc.material.color.setRGB(...sunCol);
     sun.color.setRGB(...sunCol);
     sun.intensity = clamp(Math.sin(el) * 1.5 + 0.1, 0, 1.15) * (env.dni / 900 + 0.05);
-    sun.position.copy(dir).multiplyScalar(100);
+    // 影子只算相机周围的一小片
+    const cy = terrain.height(cam.tx, cam.tz);
+    sun.target.position.set(cam.tx, cy, cam.tz);
+    sun.position.copy(dir).multiplyScalar(200).add(sun.target.position);
+    sun.castShadow = elDeg > 3 && storm < 0.5;
+    moon.material.opacity = (1 - light) * (1 - storm);
+    moon.visible = light < 0.9;
+    farMat.color.setRGB(...mix3(horizon, mix3([0.04, 0.04, 0.09], [0.36, 0.26, 0.2], light), 0.72 * (1 - storm)));
+    cloudMat.color.setRGB(...mix3(mix3([0.2, 0.22, 0.34], [1, 1, 1], light), [1, 0.62, 0.4], low * 0.7));
+    cloudMat.opacity = 0.5 * (1 - storm);
     hemi.intensity = lerp(0.42, 0.62, light) * (1 - 0.3 * storm); // 夜里留一点星月光，看得出沙丘的轮廓
     hemi.color.setRGB(...mix3([0.35, 0.42, 0.75], [1, 0.98, 0.93], light));
     hemi.groundColor.setRGB(...mix3([0.2, 0.2, 0.3], [0.72, 0.58, 0.4], light));
@@ -370,8 +592,11 @@ export function create(canvas) {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     if (!w || !h) return;
-    if (canvas.width !== Math.round(w * renderer.getPixelRatio()) || canvas.height !== Math.round(h * renderer.getPixelRatio())) {
-      renderer.setSize(w, h, false);
+    const pw = Math.min(PIXELS_WIDE, w);
+    const ph = Math.max(1, Math.round((pw * h) / w));
+    if (canvas.width !== pw || canvas.height !== ph) {
+      renderer.setSize(pw, ph, false);
+      target.setSize(pw, ph);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       needs = true;
@@ -406,7 +631,10 @@ export function create(canvas) {
       p.needsUpdate = true;
       dust.position.set(camera.position.x, camera.position.y - 2, camera.position.z);
     }
+    renderer.setRenderTarget(target);
     renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, postCam);
     needs = false;
   }
   requestAnimationFrame(frame);
