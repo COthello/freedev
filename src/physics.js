@@ -137,13 +137,15 @@ export function dehydrationPct(body) {
 
 /**
  * 某一瞬间的人体热流（W，流入身体为正）。
- * ctx: { met, shade(0–1), shelter(bool), speed(m/s), lying(bool), clothed(bool) }
+ * ctx: { met, shade(0–1), shelter(bool), draft(bool), speed(m/s), lying(bool), clothed(bool) }
  */
 export function heatFluxes(body, env, ctx) {
   const met = ctx.met ?? 1.2;
   const shade = ctx.shelter ? 0.95 : ctx.shade ?? 0;
   const clothed = ctx.clothed !== false;
   const pct = dehydrationPct(body);
+  // 竖井口的气流来自地下，温度接近全年均温：白天凉，夜里暖
+  const airT = env.airT + (ctx.draft ? 0.6 * (env.soilT - env.airT) : 0);
 
   // 代谢产热（含寒战）
   const shiver = body.coreT < 36.6 ? Math.min(2.5 * body.bmrW, 400 * (36.6 - body.coreT)) : 0;
@@ -166,13 +168,13 @@ export function heatFluxes(body, env, ctx) {
   const hr = 4.7;
   let tMrt;
   if (ctx.shelter) {
-    tMrt = 0.7 * env.soilT + 0.3 * env.airT;
+    tMrt = 0.7 * env.soilT + 0.3 * airT;
   } else {
-    const ground = env.groundT * (1 - shade) + Math.min(env.groundT, env.airT + 2) * shade;
-    const sky = (env.airT - 15) * (1 - 0.5 * shade) + env.airT * 0.5 * shade;
+    const ground = env.groundT * (1 - shade) + Math.min(env.groundT, airT + 2) * shade;
+    const sky = (airT - 15) * (1 - 0.5 * shade) + airT * 0.5 * shade;
     tMrt = 0.5 * ground + 0.5 * sky;
   }
-  const tOp = (hc * env.airT + hr * tMrt) / (hc + hr);
+  const tOp = (hc * airT + hr * tMrt) / (hc + hr);
   const dilation = clamp((body.coreT - 36.5) / 0.5, 0, 1); // 血管舒张程度
   const rTissue = 0.11 - 0.08 * dilation;
   const rCl = clothed ? 0.093 : 0;

@@ -69,18 +69,31 @@ test('世界生成是确定性的，绿洲在 10–14 km 外', () => {
     assert.ok(d >= 9 && d <= 15, `seed ${seed} d=${d}`);
     assert.equal(tileAt(w, w.oasis.x, w.oasis.y).type, 'oasis');
     assert.ok(w.tiles.filter((t) => t.type === 'wadi').length > 15);
+    const dg = Math.hypot(w.gate.x - w.oasis.x, w.gate.y - w.oasis.y);
+    assert.ok(dg >= 5 && dg <= 9, `seed ${seed} gate ${dg}`);
+    assert.equal(tileAt(w, w.gate.x, w.gate.y).gate, true);
+    assert.ok(w.tiles.filter((t) => t.shaft).length >= 2);
   }
 });
 
-test('游戏流程：直奔绿洲可以通关，原地暴晒会死', () => {
+test('游戏流程：经绿洲找到入口、清沙、进入地下城可以通关，原地暴晒会死', () => {
   const g = newGame({ seed: 7, difficulty: 'easy' });
   assert.ok(actions(g).length >= 5);
-  // 策略：白天躲在遮阴沟里睡觉，夜里朝绿洲赶路
+  // 策略：白天躲在遮阴沟里睡觉，夜里赶路；先到绿洲，再去入口
   let guard = 0;
-  while (!g.over && guard++ < 400) {
+  let reachedOasis = false;
+  while (!g.over && guard++ < 600) {
+    if (here(g).type === 'oasis') {
+      reachedOasis = true;
+      while (!g.over && (g.body.waterDeficit > 0.3 || g.inv.water < 2.9)) perform(g, 'take'); // 喝足、灌满
+    }
     if (g.inv.water > 0 && dehydrationPct(g.body) > 3) perform(g, 'drink');
+    if (g.levels.heat >= 2) {
+      perform(g, 'rest');
+      continue;
+    }
     if (envNow(g).isDay) {
-      if (!here(g).shelter && here(g).shade < 0.5) perform(g, 'digShelter');
+      if (!here(g).shelter && here(g).shade < 0.5 && g.t % 1440 < 540) perform(g, 'digShelter');
       else perform(g, g.body.fatigue > 30 ? 'sleep' : 'wait');
       continue;
     }
@@ -88,8 +101,14 @@ test('游戏流程：直奔绿洲可以通关，原地暴晒会死', () => {
       perform(g, 'sleep');
       continue;
     }
-    const dx = Math.sign(g.world.oasis.x - g.pos.x);
-    const dy = Math.sign(g.world.oasis.y - g.pos.y);
+    const acts = actions(g).filter((a) => a.enabled).map((a) => a.id);
+    if (here(g).gate) {
+      perform(g, acts.includes('enter') ? 'enter' : acts.includes('clearGate') ? 'clearGate' : 'search');
+      continue;
+    }
+    const goal = reachedOasis ? g.world.gate : g.world.oasis;
+    const dx = Math.sign(goal.x - g.pos.x);
+    const dy = Math.sign(goal.y - g.pos.y);
     perform(g, 'move', dx !== 0 ? { dx, dy: 0 } : { dx: 0, dy });
   }
   console.log('run', g.over, g.stats, dehydrationPct(g.body).toFixed(1), g.t / 60);
@@ -158,4 +177,23 @@ test('夜间动物：蝎子、角蝰、耳廓狐、胡狼都会出现', () => {
   console.log('animals', seen);
   for (const k of Object.keys(seen)) assert.ok(seen[k] > 0, k);
   assert.ok(stung);
+});
+
+test('地下城：入口要先搜出来、清完沙才能进；竖井口白天更凉', () => {
+  const g = newGame({ seed: 5, difficulty: 'easy' });
+  g.pos = { ...g.world.gate };
+  const ids = () => actions(g).map((a) => a.id);
+  assert.ok(!ids().includes('clearGate') && !ids().includes('enter'));
+  perform(g, 'search');
+  assert.ok(ids().includes('clearGate') && !ids().includes('enter'));
+  perform(g, 'clearGate');
+  perform(g, 'clearGate');
+  assert.ok(ids().includes('enter'));
+  perform(g, 'enter');
+  assert.equal(g.over.win, true);
+
+  const b = createBody();
+  const open = heatFluxes(b, at(14), { met: 1.2, shade: 0.5 });
+  const draft = heatFluxes(b, at(14), { met: 1.2, shade: 0.5, draft: true });
+  assert.ok(draft.sweatLh < open.sweatLh * 0.85, `${draft.sweatLh} vs ${open.sweatLh}`);
 });

@@ -45,7 +45,7 @@ export function newGame(cfg = {}) {
   const diff = DIFFICULTY[cfg.difficulty] ? cfg.difficulty : 'normal';
   const world = generateWorld(seed);
   const state = {
-    version: 2,
+    version: 3,
     name: cfg.name || '无名者',
     difficulty: diff,
     seed,
@@ -69,7 +69,7 @@ export function newGame(cfg = {}) {
   say(state, `${state.name}在一片陌生的沙漠中睁开眼睛。东方刚刚泛白，沙子还是凉的。`, 'story');
   say(
     state,
-    `身上只有一件长袍、一只 3 L 的水囊（里面有 ${state.inv.water.toFixed(1)} L 水）和一张塑料布。必须找到稳定的水源。`,
+    `身上只有一件长袍、一只 3 L 的水囊（里面有 ${state.inv.water.toFixed(1)} L 水）和一张塑料布。必须先找到水。`,
     'story',
   );
   look(state);
@@ -99,7 +99,7 @@ function look(state) {
 
 function restCtx(state, met, lying) {
   const tile = here(state);
-  return { met, shade: tile.shade, shelter: tile.shelter, lying };
+  return { met, shade: tile.shade, shelter: tile.shelter, draft: tile.shaft, lying };
 }
 
 /** 刷新界面上显示的“此刻静息热流” */
@@ -250,6 +250,14 @@ function advance(state, minutes, act) {
       }
     }
 
+    // 黎明最冷的时候，地下城呼出的暖湿空气会凝成一缕白雾
+    if (tod === 315 && !sleeping && env.storm === 0) {
+      const g = state.world.gate;
+      const dg = Math.hypot(g.x - state.pos.x, g.y - state.pos.y);
+      if (dg > 0 && dg <= 7 && !tileAt(state.world, g.x, g.y).gateFound) {
+        say(state, `天亮前最冷的那一刻，${bearing(state.pos, g)}方的地面上升起一缕细细的白雾，太阳一出来就散了。沙漠里不该有雾——那是地下的暖湿空气在往外冒。`, 'hint');
+      }
+    }
     if (tod === 320) say(state, '太阳升起来了。气温很快会爬升。', 'env');
     if (tod === 1120) say(state, '太阳落山了。沙漠开始迅速变凉。', 'env');
 
@@ -269,7 +277,7 @@ function advance(state, minutes, act) {
       }
     }
     state.levels = lv;
-    if (eventStop || (stop && (act.long || lv.heat >= 3 || lv.dehyd >= 4 || lv.tired >= 2 || lv.cold >= 3))) {
+    if (eventStop || (stop && (act.long || (act.kind === 'work' && lv.heat >= 2) || lv.heat >= 3 || lv.dehyd >= 4 || lv.tired >= 2 || lv.cold >= 3))) {
       interrupted = true;
       break;
     }
@@ -368,8 +376,13 @@ export function actions(state) {
   if (tile.type === 'wadi' && !tile.well && !tile.dry) {
     add('digWater', '向下挖水', `1 小时 · 已挖 ${tile.dug.toFixed(1)} m`);
   }
-  if (tile.plants > 0) add('forage', '割取多肉植物', `剩 ${tile.plants} 株 · 20 分钟`);
-  if (!tile.shelter && tile.type !== 'oasis') add('digShelter', '挖遮阴沟', '90 分钟重体力');
+  if (tile.plants > 0) {
+    if (tile.type === 'oasis') add('forage', '摘椰枣', `剩 ${tile.plants} 串 · 20 分钟`);
+    else add('forage', '割取多肉植物', `剩 ${tile.plants} 株 · 20 分钟`);
+  }
+  if (tile.gateFound && tile.gateDug < 1) add('clearGate', '清理门前的积沙', `1 小时 · 已清 ${tile.gateDug.toFixed(1)} / 1.0 m`);
+  if (tile.gateFound && tile.gateDug >= 1) add('enter', '推开石门，走进地下', '第一幕的终点');
+  if (!tile.shelter && tile.type !== 'oasis') add('digShelter', '挖遮阴沟', tile.shelterMin ? `还差 ${90 - tile.shelterMin} 分钟` : '90 分钟重体力');
   if (tile.still) add('packStill', '收起蒸馏器', `已凝结 ${tile.still.l.toFixed(2)} L`);
   else if (state.inv.sheet) add('still', '布置太阳能蒸馏器', '1 小时 · 只在白天产水');
   return list;
@@ -426,9 +439,13 @@ export function perform(state, id, arg) {
           }
         }
       }
-      if (c.dest.type === 'oasis') {
-        state.over = { win: true };
-        say(state, '棕榈树下有一汪泉水。你跪下去，把脸埋进水里。第一幕结束——你活下来了。', 'good');
+      if (!c.dest.visited) {
+        c.dest.visited = true;
+        if (c.dest.type === 'oasis') {
+          say(state, '棕榈树下有一汪泉水。你跪下去，把脸埋进水里。喝够了才注意到：水是从一个石砌的方形渠口里流出来的。这不是天然的泉——有人把水从别处引到了这里。', 'good');
+        } else if (c.dest.shaft && env0.storm <= 0.5) {
+          say(state, '沙地上有一圈垒石围着的土丘，中间是一口笔直的竖井。井口往外吹着风，深处隐约有流水声。井壁上的凿痕整整齐齐。', 'hint');
+        }
       }
       break;
     }
@@ -464,7 +481,15 @@ export function perform(state, id, arg) {
       if (tile.type === 'rock' && state.effects.sting <= state.t && hash01(state.seed + 53, state.t) < 0.06) {
         sting(state, '你把手伸进石缝，指尖一阵剧痛——石头下面躲着一只蝎子。伤处又肿又麻，心跳得厉害。');
       }
-      if (tile.pool > 0) {
+      const gate = state.world.gate;
+      if (tile.type === 'oasis') {
+        say(state, `你顺着渠口往里看：一条一人高的暗渠笔直地伸进黑暗，朝着${bearing(state.pos, gate)}方。渠顶每隔一段透下一点天光——地面上应该有一串竖井。沿着它们走，就能找到水的源头。`, 'hint');
+      } else if (tile.shaft) {
+        say(state, `你爬上土丘四下望：同样的土丘每隔两公里一个，排成一条直线。一头通向${bearing(state.pos, state.world.oasis)}方，另一头指向${bearing(state.pos, gate)}方——水是从那边流过来的。井太深，够不着水，但井口的风在白天是凉的。`, 'hint');
+      } else if (tile.gate) {
+        tile.gateFound = true;
+        say(state, '岩壁根部有一道过于平直的石缝，被流沙埋了大半。你扒开一点沙：是一道门楣，上面刻着你不认识的字。缝里往外渗着凉气。', 'good');
+      } else if (tile.pool > 0) {
         tile.poolFound = true;
         say(state, `岩缝深处有一个背阴的石窝，里面积着约 ${tile.pool.toFixed(1)} L 雨水。`, 'good');
       } else if (tile.type === 'wadi') {
@@ -511,16 +536,35 @@ export function perform(state, id, arg) {
       advance(state, 20, { met: 3, kind: 'work' });
       if (state.over) return;
       tile.plants--;
+      if (tile.type === 'oasis') {
+        eat(body, 400);
+        say(state, '爬上树摘下一串熟透的椰枣，甜得发腻。（约 400 kcal）', 'good');
+        break;
+      }
       drink(body, 0.25);
       eat(body, 120);
       state.stats.drunk += 0.25;
       say(state, '削去硬皮，嚼下苦涩多汁的茎肉。（约 0.25 L 水，120 kcal）', 'good');
       break;
     }
-    case 'digShelter': {
-      const r = advance(state, 90, { met: 6, kind: 'work' });
+    case 'clearGate': {
+      const r = advance(state, 60, { met: 6, kind: 'work' });
       if (state.over) return;
-      if (r.interrupted) return say(state, '还没挖完，身体先撑不住了。', 'warn');
+      tile.gateDug = Math.min(1, tile.gateDug + (0.5 * r.elapsed) / 60);
+      if (tile.gateDug >= 1) say(state, '最后一捧沙被扒开，整扇石门露了出来。门轴上没有锈，只有沙。', 'good');
+      else say(state, `扒了 ${fmtDur(r.elapsed)}的沙，门露出了 ${Math.round(tile.gateDug * 100)}%。`);
+      break;
+    }
+    case 'enter': {
+      state.over = { win: true };
+      say(state, '石门比看上去轻。门后是向下的台阶，凉而潮湿的空气扑在脸上，带着水和石头的气味。很深的地方有一点光。你回头看了一眼白得刺眼的沙漠，走了下去。', 'story');
+      break;
+    }
+    case 'digShelter': {
+      const r = advance(state, 90 - (tile.shelterMin ?? 0), { met: 6, kind: 'work' });
+      if (state.over) return;
+      tile.shelterMin = (tile.shelterMin ?? 0) + r.elapsed;
+      if (tile.shelterMin < 90) return say(state, `挖到一半（${Math.round((tile.shelterMin / 90) * 100)}%），身体先撑不住了。歇一歇再接着挖。`, 'warn');
       tile.shelter = true;
       say(state, '挖出一条半米深的沟，把长袍下摆撑在上面。沟底的沙子比地面凉二三十度，夜里又比地面暖。', 'good');
       break;

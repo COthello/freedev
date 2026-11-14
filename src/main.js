@@ -17,7 +17,7 @@ function save() {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-    return s && s.version === 2 ? s : null;
+    return s && s.version === 3 ? s : null;
   } catch {
     return null;
   }
@@ -176,7 +176,40 @@ function drawScene() {
       ctx.fill();
     }
   }
-  if (tile.plants > 0) {
+  if (tile.shaft) {
+    // 竖井：弃土堆成的环形土丘，中间一口黑井
+    const mx = w * 0.72;
+    ctx.fillStyle = dark([196, 164, 112]);
+    ctx.beginPath();
+    ctx.moveTo(mx - 60, gy + 6);
+    ctx.quadraticCurveTo(mx, gy - 34, mx + 60, gy + 6);
+    ctx.fill();
+    ctx.fillStyle = dark([120, 104, 92]);
+    ctx.beginPath();
+    ctx.ellipse(mx, gy - 13, 19, 6, 0, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = '#0d0b14';
+    ctx.beginPath();
+    ctx.ellipse(mx, gy - 13, 13, 3.5, 0, 0, 7);
+    ctx.fill();
+  }
+  if (tile.gateFound) {
+    // 岩壁根部的石门，积沙随清理而降低
+    const dx0 = w * 0.655;
+    const dw = 34;
+    const dh = 44;
+    ctx.fillStyle = dark([150, 130, 112]);
+    ctx.fillRect(dx0 - 5, gy - dh - 5, dw + 10, dh + 11);
+    ctx.fillStyle = '#0d0b14';
+    ctx.fillRect(dx0, gy - dh, dw, dh + 6);
+    const sandH = (dh + 6) * (1 - 0.85 * tile.gateDug);
+    ctx.fillStyle = rgb(sand);
+    ctx.beginPath();
+    ctx.moveTo(dx0 - 30, gy + 6);
+    ctx.quadraticCurveTo(dx0 + dw / 2, gy + 6 - sandH * 1.7, dx0 + dw + 30, gy + 6);
+    ctx.fill();
+  }
+  if (tile.plants > 0 && tile.type !== 'oasis') {
     ctx.fillStyle = dark([96, 140, 86]);
     for (let i = 0; i < tile.plants; i++) {
       ctx.beginPath();
@@ -300,7 +333,7 @@ function drawScene() {
   $('storm').hidden = !(env.storm > 0 || coming);
   $('storm').textContent = env.storm > 0 ? '沙暴' : '沙暴将至';
 
-  $('place').textContent = `${TERRAIN[tile.type].name}${tile.shelter ? ' · 遮阴沟' : tile.shade > 0 ? ' · 有阴凉' : ''}`;
+  $('place').textContent = `${tile.gateFound ? '地下城入口' : tile.shaft ? `${TERRAIN[tile.type].name} · 竖井` : TERRAIN[tile.type].name}${tile.shelter ? ' · 遮阴沟' : tile.shade > 0 ? ' · 有阴凉' : ''}`;
 }
 
 // —— 地图 ——
@@ -344,6 +377,17 @@ function drawMap() {
         ctx.beginPath();
         ctx.arc(x + c / 2, y + c / 2, c * 0.2, 0, 7);
         ctx.fill();
+      }
+      if (t.shaft) {
+        ctx.strokeStyle = '#26222e';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x + c / 2, y + c / 2, c * 0.14, 0, 7);
+        ctx.stroke();
+      }
+      if (t.gateFound) {
+        ctx.fillStyle = '#17141f';
+        ctx.fillRect(x + c * 0.36, y + c * 0.3, c * 0.28, c * 0.42);
       }
       if (t.shelter) {
         ctx.strokeStyle = '#26222e';
@@ -478,8 +522,8 @@ function renderEnd() {
   const c = clock(state);
   const b = state.body;
   el.hidden = false;
-  el.innerHTML = `<h2>${state.over.win ? '你找到了绿洲' : `${esc(state.name)}没能走出沙漠`}</h2>
-    <p>${state.over.win ? '第一幕结束。水、树荫、鸟鸣——接下来的故事从这里开始。' : esc(state.over.cause) + '。'}</p>
+  el.innerHTML = `<h2>${state.over.win ? '你走进了地下城' : `${esc(state.name)}没能走出沙漠`}</h2>
+    <p>${state.over.win ? '第一幕结束。沙漠留在了头顶上，接下来的故事在地下。' : esc(state.over.cause) + '。'}</p>
     <dl class="readout" style="max-width:24em">
       <dt>存活时间</dt><dd>${c.survivedH.toFixed(1)} 小时</dd>
       <dt>步行距离</dt><dd>${state.stats.km} km</dd>

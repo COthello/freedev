@@ -66,6 +66,11 @@ export function generateWorld(seed) {
         shelter: false,
         still: null,
         searched: false,
+        visited: false,
+        shaft: false, // 暗渠的竖井
+        gate: false, // 地下城入口
+        gateFound: false,
+        gateDug: 0, // 已清开的积沙 m
         seen: false,
       });
     }
@@ -110,13 +115,38 @@ export function generateWorld(seed) {
   carve(toStart + Math.PI + (rng() - 0.5) * 1.2, 14);
 
   const o = tileAt(world, oasis.x, oasis.y);
-  Object.assign(o, { type: 'oasis', shade: 0.85, plants: 0, pool: 0, waterDepth: 0 });
+  Object.assign(o, { type: 'oasis', shade: 0.85, plants: 5, pool: 0, waterDepth: 0 }); // plants：椰枣
 
   const s = tileAt(world, start.x, start.y);
   Object.assign(s, { type: 'flat', shade: 0, plants: 0, pool: 0, waterDepth: null });
 
+  // 地下城：绿洲的水其实来自一条人工暗渠，暗渠的源头就是地下城。
+  // 入口在绿洲另一侧 6–8 km 外的岩壁下，沿途每隔 2 km 有一口通风竖井。
+  const away = Math.atan2(oasis.y - start.y, oasis.x - start.x);
+  let gate;
+  for (let i = 0; i < 2000 && !gate; i++) {
+    const ang = away + (rng() - 0.5) * (i < 200 ? 2 : Math.PI * 2);
+    const d = 6 + rng() * 2;
+    const gx = Math.round(oasis.x + Math.cos(ang) * d);
+    const gy = Math.round(oasis.y + Math.sin(ang) * d);
+    const t = tileAt(world, gx, gy);
+    if (!t || gx < 2 || gy < 2 || gx >= size - 2 || gy >= size - 2) continue;
+    if (t.type === 'wadi' || Math.hypot(gx - start.x, gy - start.y) < 8) continue;
+    gate = { x: gx, y: gy };
+  }
+  if (!gate) gate = { x: Math.min(size - 3, Math.max(2, oasis.x + (oasis.x < size / 2 ? 6 : -6))), y: oasis.y };
+  const n = Math.round(Math.hypot(gate.x - oasis.x, gate.y - oasis.y));
+  for (let k = 2; k < n; k += 2) {
+    const t = tileAt(world, Math.round(oasis.x + ((gate.x - oasis.x) * k) / n), Math.round(oasis.y + ((gate.y - oasis.y) * k) / n));
+    if (!t || t.type === 'oasis') continue;
+    t.shaft = true;
+    t.shade = Math.max(t.shade, 0.5); // 井口垒石和弃土堆的影子
+  }
+  Object.assign(tileAt(world, gate.x, gate.y), { type: 'rock', shade: 0.8, plants: 0, pool: 0, waterDepth: null, shaft: false, gate: true });
+
   world.start = start;
   world.oasis = oasis;
+  world.gate = gate;
   return world;
 }
 
