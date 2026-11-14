@@ -110,6 +110,16 @@ section { min-width: 0; }
 #log .warn { color: var(--warn); } #log .danger, #log .death { color: var(--bad); font-weight: 600; }
 #log .good { color: var(--ok); } #log .hint { color: var(--night); } #log .story { font-family: var(--display); }
 #log .env { color: var(--muted); }
+#log .talk { border-left: 2px solid var(--line); padding-left: 8px; }
+h3 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.08em; margin: 14px 0 6px; }
+#locDesc { margin: 0; max-width: 36em; }
+.span { grid-column: 1 / -1; }
+.goal { margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; font-size: 13px; }
+.goal b { font-family: var(--display); }
+.goal .yes { color: var(--ok); } .goal .no { color: var(--muted); }
+.none { color: var(--muted); font-size: 13px; grid-column: 1 / -1; }
+#scene.city { aspect-ratio: 16 / 7; }
+#scene.city + #place { bottom: auto; top: 6px; }
 #end { border: 2px solid var(--ink); border-radius: 4px; padding: 16px; background: var(--panel); }
 #end h2 { font-size: 22px; }
 #end .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
@@ -119,6 +129,7 @@ section { min-width: 0; }
   .col { display: contents; }
   #vitals { order: 1; } #actionsBox { order: 2; } #mapBox { order: 3; } #logBox { order: 4; } #phys { order: 5; }
   #scene { aspect-ratio: 16 / 8; }
+  #scene.city { aspect-ratio: 4 / 3.6; }
   h1 { font-size: 24px; }
 }
 @media (max-width: 420px) { .cols { grid-template-columns: minmax(0, 1fr); } }
@@ -128,7 +139,7 @@ section { min-width: 0; }
 <div class="wrap">
   <header>
     <h1>生于沙海</h1>
-    <span class="act">公元 2226 · 第一幕 · 地表</span>
+    <span class="act" id="actLabel">公元 2226 · 第一幕 · 地表</span>
     <span class="clock" id="clock" hidden><span class="badge" id="storm" hidden>沙暴</span><span>第 <b id="day">1</b> 天</span><b id="time">05:00</b><button class="link" id="quit" type="button">重新出生</button></span>
   </header>
 
@@ -138,7 +149,7 @@ section { min-width: 0; }
       <p>公元 2226 年，地表已经不适合人活着。你脚下曾经是有河的地方，如今是一片沙漠：黎明 19°C，午后 43°C，正午沙面超过 60°C。空气极干，汗一出就蒸发，所以你感觉不到自己在流汗，但水在一直流失。</p>
       <p>身体按真实的热平衡运转：代谢产热、日照、对流与辐射、出汗蒸发。失水达到体重的 15%，或核心体温越过 42°C，都会致命。</p>
       <p>午后常起沙暴，夜里沙面上有蝎子和角蝰。十几公里外有一处绿洲，先活着走到那里。</p>
-      <p>老人们说，旧时代的人在地下留了一个世界，世界真正的秘密也在那里。入口被沙埋着，没有人知道在哪——但水知道。找到入口，走进去，第一幕就结束了。</p>
+      <p>老人们说，旧时代的人在地下留了一个世界，世界真正的秘密也在那里。入口被沙埋着，没有人知道在哪——但水知道。找到入口，走进去，第一幕结束，第二幕在地下开始。</p>
       <form class="form" id="form">
         <label class="wide">名字<input id="f-name" maxlength="12" value="阿洛" autocomplete="off"></label>
         <label>性别<select id="f-sex"><option value="male">男</option><option value="female">女</option></select></label>
@@ -168,15 +179,26 @@ section { min-width: 0; }
         <div class="cols">
           <div><h2>环境</h2><dl class="readout" id="env"></dl></div>
           <div><h2 id="fluxTitle">热平衡</h2><div class="flux" id="flux"></div></div>
+          <div class="span" id="sysBox" hidden><h2>深泉此刻的收支</h2><dl class="readout" id="sys"></dl></div>
         </div>
       </section>
     </div>
     <div class="col">
       <section id="mapBox">
+        <div id="surfaceMap">
         <h2>周围 <span class="act">每格 1 km · 点相邻的格子或按方向键移动</span></h2>
         <canvas id="map" tabindex="0" aria-label="地图，点击相邻的格子移动，或使用方向键"></canvas>
         <div class="legend"><span><i style="background:#d9c08a"></i>砾石平原</span><span><i style="background:#e9a85a"></i>沙丘</span><span><i style="background:#7d6a5d"></i>岩石</span><span><i style="background:#9aa37a"></i>干河床</span><span><i style="background:#2f8f6a"></i>绿洲</span><span><i style="background:#1f6f9c;border-radius:50%"></i>水</span><span><i style="background:none;border:2px solid var(--ink);border-radius:50%"></i>竖井</span></div>
         <div class="moves" id="moves"></div>
+        </div>
+        <div id="cityPanel" hidden>
+          <h2 id="locName"></h2>
+          <p id="locDesc"></p>
+          <h3>这里的人</h3>
+          <div class="acts" id="people"></div>
+          <h3>去别处</h3>
+          <div class="acts" id="goes"></div>
+        </div>
       </section>
       <section id="logBox"><h2>经过</h2><ol id="log"></ol></section>
     </div>

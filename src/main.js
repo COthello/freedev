@@ -1,5 +1,7 @@
 // 界面层：把游戏状态画出来，把点击翻译成行动。
-import { createBody, dehydrationPct, currentMass } from './physics.js';
+import { createBody, dehydrationPct, currentMass, climate } from './physics.js';
+import { CITY, DISTRICTS, EVENTS, lightsOn } from './city.js';
+import { systems, residency } from './act2.js';
 import { TERRAIN, tileAt } from './world.js';
 import { newGame, perform, actions, ailments, moveCost, envNow, here, clock, refreshFlux, BOTTLE_L } from './game.js';
 
@@ -17,7 +19,7 @@ function save() {
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-    return s && s.version === 3 ? s : null;
+    return s && s.version === 4 ? s : null;
   } catch {
     return null;
   }
@@ -336,6 +338,140 @@ function drawScene() {
   $('place').textContent = `${tile.gateFound ? '地下世界入口' : tile.shaft ? `${TERRAIN[tile.type].name} · 竖井` : TERRAIN[tile.type].name}${tile.shelter ? ' · 遮阴沟' : tile.shade > 0 ? ' · 有阴凉' : ''}`;
 }
 
+// —— 第二幕的画面：城市剖面。上面一条是此刻真实的地表，下面是岩层里的各个区域 ——
+const CITY_LAYOUT = {
+  gate: [0.5, 0], hall: [0.22, 1], school: [0.78, 1], market: [0.5, 2], homes: [0.3, 3.2],
+  archive: [0.13, 4.4], farms: [0.62, 4.4], water: [0.82, 5.6], heat: [0.82, 7.4],
+};
+const CITY_EDGES = [['gate', 'market'], ['market', 'hall'], ['market', 'school'], ['market', 'homes'], ['market', 'farms'], ['homes', 'archive'], ['homes', 'farms'], ['farms', 'water'], ['water', 'heat']];
+function drawCity() {
+  const { ctx, w, h } = fitCanvas($('scene'));
+  const surf = climate(state.t, state.climate);
+  const el = (surf.sunElev * 180) / Math.PI;
+  const light = Math.min(1, Math.max(0, (el + 6) / 18));
+  const ys = h * 0.13;
+  // 地表
+  const sky = ctx.createLinearGradient(0, 0, 0, ys);
+  sky.addColorStop(0, rgb(mix([8, 10, 32], [52, 132, 214], light)));
+  sky.addColorStop(1, rgb(mix([26, 26, 58], [206, 228, 244], light)));
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, ys);
+  if (surf.storm > 0) {
+    ctx.fillStyle = rgb([196, 150, 84], 0.8 * surf.storm);
+    ctx.fillRect(0, 0, w, ys);
+  }
+  if (el > 0) {
+    ctx.fillStyle = '#fff6dc';
+    ctx.beginPath();
+    ctx.arc(w * (0.08 + (0.84 * (surf.hour - 5.3)) / 13.4), ys - Math.sin(surf.sunElev) * ys * 0.8, 5, 0, 7);
+    ctx.fill();
+  }
+  // 岩层
+  const rock = ctx.createLinearGradient(0, ys, 0, h);
+  rock.addColorStop(0, '#4a3f3a');
+  rock.addColorStop(0.5, '#2c2630');
+  rock.addColorStop(1, '#3a1f1c'); // 越深越热
+  ctx.fillStyle = rock;
+  ctx.fillRect(0, ys, w, h - ys);
+  ctx.fillStyle = rgb(mix([52, 48, 74], [231, 201, 143], light));
+  ctx.fillRect(0, ys - 3, w, 6);
+
+  const rowH = (h - ys - 20) / 8.4;
+  const cw = Math.min(104, w * 0.2);
+  const ch = Math.min(26, rowH * 0.92);
+  const pos = (id) => [CITY_LAYOUT[id][0] * w, ys + 16 + CITY_LAYOUT[id][1] * rowH + ch / 2];
+
+  // 竖井、溢流渠、通道
+  ctx.strokeStyle = 'rgba(210,214,220,0.35)';
+  ctx.lineWidth = 2;
+  const [gx, gy] = pos('gate');
+  ctx.beginPath();
+  ctx.moveTo(gx, ys);
+  ctx.lineTo(gx, gy);
+  ctx.stroke();
+  const [wx, wy] = pos('water');
+  ctx.strokeStyle = 'rgba(120,190,230,0.6)';
+  ctx.beginPath();
+  ctx.moveTo(wx + cw / 2, wy);
+  ctx.lineTo(w - 10, wy);
+  ctx.lineTo(w - 10, ys);
+  ctx.stroke();
+  ctx.fillStyle = '#2f8f6a';
+  ctx.fillRect(w - 16, ys - 7, 12, 5); // 绿洲
+  ctx.strokeStyle = 'rgba(235,228,214,0.3)';
+  ctx.lineWidth = 3;
+  for (const [a, b] of CITY_EDGES) {
+    const [x1, y1] = pos(a);
+    const [x2, y2] = pos(b);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  // 各区
+  const on = lightsOn(state.t);
+  const sys = systems(state);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `600 ${Math.max(10, Math.min(13, ch * 0.5))}px system-ui, "PingFang SC", "Microsoft YaHei", sans-serif`;
+  for (const [id, d] of Object.entries(DISTRICTS)) {
+    const [x, y] = pos(id);
+    const glow = id === 'farms' ? 0.25 + 0.75 * sys.lit : id === 'heat' || id === 'gate' ? 0.85 : on ? 1 : 0.35;
+    ctx.fillStyle = rgb(mix([40, 36, 48], d.hue, glow));
+    ctx.beginPath();
+    ctx.roundRect(x - cw / 2, y - ch / 2, cw, ch, 5);
+    ctx.fill();
+    if (id === state.c2.loc) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    ctx.fillStyle = glow > 0.6 ? '#1c1822' : '#e8e0d0';
+    ctx.fillText(d.name, x, y + 1);
+  }
+  const [px, py] = pos(state.c2.loc);
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#b3261e';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(px - cw / 2, py - ch / 2, 5, 0, 7);
+  ctx.fill();
+  ctx.stroke();
+
+  const d = DISTRICTS[state.c2.loc];
+  $('storm').hidden = true;
+  $('place').textContent = `${d.name} · 地下 ${d.depth} m · 剖面示意，不按比例`;
+}
+
+function renderCity() {
+  const c = state.c2;
+  const d = DISTRICTS[c.loc];
+  const list = actions(state);
+  const btn = (a) => `<button type="button" data-act="${a.id}" ${a.enabled ? '' : 'disabled'}>${a.label}<small>${a.enabled ? a.desc : a.why}</small></button>`;
+  $('locName').textContent = `${d.name} · 地下 ${d.depth} m`;
+  $('locDesc').textContent = d.desc;
+  const people = list.filter((a) => a.group === 'talk');
+  $('people').innerHTML = people.length ? people.map(btn).join('') : `<span class="none">${lightsOn(state.t) ? '这会儿没有认识的人在。' : '夜里，人都回家睡了。'}</span>`;
+  $('goes').innerHTML = list.filter((a) => a.group === 'go').map(btn).join('');
+  $('acts').innerHTML = list.filter((a) => a.group === 'here').map(btn).join('');
+
+  const s = systems(state);
+  const rows = [
+    ['今天', EVENTS[s.event].name],
+    ['地热发电 / 用电', `${s.supplyMW.toFixed(0)} / ${s.demandMW.toFixed(0)} MW`],
+    ['光田亮灯', s.lit > 0 ? `${Math.round(s.lit * 100)} % · ${s.farmMW.toFixed(0)} MW` : '熄灯（夜间）'],
+    ['产粮 / 吃粮', `${(s.growKcalH / 1e6).toFixed(2)} / ${(s.eatKcalH / 1e6).toFixed(2)} 百万 kcal/h`],
+    ['存粮', `${state.city.foodDays.toFixed(1)} 天`],
+    ['蓄水库', `${Math.round(state.city.reservoirM3).toLocaleString('en-US')} m³ · 回收 ${Math.round(s.recycle * 100)} %`],
+    ['溢流到地表', `${s.overflowLs.toFixed(1)} L/s`],
+    ['产氧 / 耗氧', `${Math.round(s.o2MakeKgH)} / ${Math.round(s.o2UseKgH)} kg/h`],
+    ['中庭 CO₂', `${s.co2ppm} ppm`],
+    ['需排出的热', `${s.heatMW.toFixed(0)} MW`],
+    ['人口', CITY.pop.toLocaleString('en-US')],
+  ];
+  $('sys').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
 // —— 地图 ——
 const TILE_COLOR = { flat: '#d9c08a', dune: '#e9a85a', rock: '#7d6a5d', wadi: '#9aa37a', oasis: '#2f8f6a' };
 const VIEW_W = 15;
@@ -439,10 +575,36 @@ function renderMeters() {
     meter('能量', b.glycogenKcal / 2000, `${Math.round(b.glycogenKcal)} kcal`, `糖原 · 另有脂肪 ${b.fatKg.toFixed(1)} kg · 体重 ${currentMass(b).toFixed(1)} kg`, b.glycogenKcal < 200 ? 1 : 0) +
     ailments(state)
       .map((a) => `<p class="ail">${a}</p>`)
-      .join('');
+      .join('') +
+    (state.act === 2 ? cityStatus() : '');
+}
+
+function cityStatus() {
+  const c = state.c2;
+  const r = residency(state);
+  const mark = (ok, text) => `<span class="${ok ? 'yes' : 'no'}">${ok ? '✓' : '○'} ${text}</span>`;
+  const goal = c.resident
+    ? `<b>${CITY.name}居民</b> · 当前版本的故事到这里，城里的日子可以继续过。`
+    : !c.examined
+      ? '<b>临时身份</b> · 先在闸口接受检疫。'
+      : `<b>落户</b>（在议事厅办理）<br>${mark(r.shiftsOk, `干满三个工（${Math.min(3, r.shifts)}/3）`)}　${mark(!!r.sponsor, r.sponsor ? `保人：${r.sponsor}` : '一位居民愿意作保（多和人来往）')}`;
+  return `<div class="meter"><span>度</span><div></div><span class="num">${c.credits} 度</span><span class="note">这里的钱，1 度 = 1 kWh 的配额</span></div><p class="goal">${goal}</p>`;
 }
 
 function renderEnv() {
+  if (state.act === 2) {
+    const e = envNow(state);
+    const d = DISTRICTS[state.c2.loc];
+    const rows = [
+      ['气温', `${e.airT.toFixed(1)} °C`],
+      ['相对湿度', `${e.rh.toFixed(0)} %`],
+      ['风速', `${e.wind.toFixed(1)} m/s`],
+      ['深度', `${d.depth} m`],
+      ['照明', lightsOn(state.t) ? '大灯（昼）' : '廊灯（夜）'],
+    ];
+    $('env').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    return;
+  }
   const e = envNow(state);
   const rows = [
     ['气温', `${e.airT.toFixed(1)} °C`],
@@ -468,6 +630,7 @@ function renderFlux() {
   ];
   const scale = Math.max(300, ...rows.map((r) => Math.abs(r[1])));
   $('fluxTitle').textContent = '热平衡（此地静坐时）';
+  if (state.over) return;
   $('flux').innerHTML =
     rows
       .map(([k, v]) => {
@@ -547,13 +710,24 @@ function render() {
   const c = clock(state);
   $('day').textContent = c.day;
   $('time').textContent = c.text;
-  drawScene();
-  drawMap();
+  const city = state.act === 2;
+  $('scene').classList.toggle('city', city);
+  $('surfaceMap').hidden = city;
+  $('cityPanel').hidden = !city;
+  $('sysBox').hidden = !city;
+  $('actLabel').textContent = city ? `公元 2226 · 第二幕 · ${CITY.name}` : '公元 2226 · 第一幕 · 地表';
+  if (city) {
+    drawCity();
+    renderCity();
+  } else {
+    drawScene();
+    drawMap();
+    renderMoves();
+    renderActions();
+  }
   renderMeters();
   renderEnv();
   renderFlux();
-  renderMoves();
-  renderActions();
   renderLog();
   renderEnd();
 }
@@ -583,12 +757,16 @@ $('acts').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-act]');
   if (b && !b.disabled) act(b.dataset.act);
 });
+$('cityPanel').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (b && !b.disabled) act(b.dataset.act);
+});
 $('moves').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-dx]');
   if (b && !b.disabled) act('move', { dx: Number(b.dataset.dx), dy: Number(b.dataset.dy) });
 });
 $('map').addEventListener('click', (e) => {
-  if (!state) return;
+  if (!state || state.act === 2) return;
   const r = $('map').getBoundingClientRect();
   const c = r.width / VIEW_W;
   const dx = Math.floor((e.clientX - r.left) / c) - (VIEW_W - 1) / 2;
@@ -596,7 +774,7 @@ $('map').addEventListener('click', (e) => {
   if (Math.abs(dx) + Math.abs(dy) === 1) act('move', { dx, dy });
 });
 document.addEventListener('keydown', (e) => {
-  if (!state || state.over || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if (!state || state.over || state.act === 2 || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
   const k = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] }[e.key];
   if (k) {
     e.preventDefault();
@@ -612,8 +790,8 @@ $('end').addEventListener('click', (e) => {
   if (e.target.id === 'again') start({ ...state.cfg, seed: state.seed });
   if (e.target.id === 'fresh') start({ ...state.cfg, seed: undefined });
 });
-window.addEventListener('resize', () => state && (drawScene(), drawMap()));
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state && drawMap());
+window.addEventListener('resize', () => state && (state.act === 2 ? drawCity() : (drawScene(), drawMap())));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state && state.act !== 2 && drawMap());
 
 state = load();
 if (state && !state.over) refreshFlux(state);

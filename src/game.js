@@ -13,6 +13,10 @@ import {
   hash01,
 } from './physics.js';
 import { generateWorld, tileAt, reveal, bearing, TERRAIN } from './world.js';
+import { BOTTLE_L, say, computeLevels, metMul, WARN, fmtDur } from './common.js';
+import { initAct2, actions2, perform2, env2 } from './act2.js';
+
+export { BOTTLE_L };
 
 export const DIFFICULTY = {
   easy: { label: '宽松', water: 3 },
@@ -20,7 +24,6 @@ export const DIFFICULTY = {
   hard: { label: '严酷', water: 1 },
 };
 
-export const BOTTLE_L = 3;
 const START_MIN = 5 * 60; // 第 1 天 05:00，日出前
 const DIG_RATE = 0.35; // m/h
 const SEEP_RATE = 0.6; // L/h
@@ -45,7 +48,7 @@ export function newGame(cfg = {}) {
   const diff = DIFFICULTY[cfg.difficulty] ? cfg.difficulty : 'normal';
   const world = generateWorld(seed);
   const state = {
-    version: 3,
+    version: 4,
     name: cfg.name || '无名者',
     difficulty: diff,
     seed,
@@ -56,7 +59,8 @@ export function newGame(cfg = {}) {
     world,
     pos: { ...world.start },
     inv: { water: DIFFICULTY[diff].water, sheet: true },
-    levels: { dehyd: 0, heat: 0, cold: 0, tired: 0 },
+    levels: { dehyd: 0, heat: 0, cold: 0, tired: 0, hungry: 0 },
+    act: 1,
     stats: { km: 0, drunk: 0 },
     effects: { sting: 0, pain: 0, bite: 0 }, // 各自的结束时刻
     sight: null, // 刚看见的动物，供画面使用
@@ -77,16 +81,12 @@ export function newGame(cfg = {}) {
   return state;
 }
 
-function say(state, text, kind = 'info') {
-  state.log.push({ t: state.t, text, kind });
-  if (state.log.length > 200) state.log.splice(0, state.log.length - 200);
-}
-
 export function here(state) {
   return tileAt(state.world, state.pos.x, state.pos.y);
 }
 
 export function envNow(state) {
+  if (state.act === 2) return env2(state);
   return climate(state.t, state.climate);
 }
 
@@ -104,27 +104,16 @@ function restCtx(state, met, lying) {
 
 /** 刷新界面上显示的“此刻静息热流” */
 export function refreshFlux(state) {
+  if (state.act === 2) {
+    state.flux = heatFluxes(state.body, env2(state), { met: 1.2, shelter: true, indoor: true });
+    return;
+  }
   state.flux = heatFluxes(state.body, envNow(state), restCtx(state, 1.2, false));
 }
 
 function wellWater(tile, t) {
   if (!tile.well) return 0;
   return Math.min(WELL_MAX, tile.well.l + ((t - tile.well.since) / 60) * SEEP_RATE);
-}
-
-function computeLevels(body) {
-  const p = dehydrationPct(body);
-  const T = body.coreT;
-  return {
-    dehyd: p >= 11 ? 4 : p >= 8 ? 3 : p >= 5 ? 2 : p >= 2 ? 1 : 0,
-    heat: T >= 40.5 ? 3 : T >= 39.2 ? 2 : T >= 38.3 ? 1 : 0,
-    cold: T <= 33 ? 3 : T <= 35 ? 2 : T <= 36 ? 1 : 0,
-    tired: body.fatigue >= 100 ? 2 : body.fatigue >= 75 ? 1 : 0,
-  };
-}
-
-function metMul(state) {
-  return (state.effects.sting > state.t ? 1.2 : 1) * (state.effects.bite > state.t ? 1.15 : 1);
 }
 
 /** 当前位置是否背风（沙暴里能躲的地方） */
@@ -175,19 +164,6 @@ function sting(state, text) {
   state.sight = { kind: 'scorpion', until: state.t + 30 };
   say(state, text, 'danger');
 }
-
-const WARN = {
-  dehyd: [
-    null,
-    '嘴唇发干，开始口渴。（脱水 2%）',
-    '头痛，尿色深黄，走路变慢了。（脱水 5%）',
-    '头晕目眩，舌头肿胀，几乎没有汗了。（脱水 8%）',
-    '视线模糊，双腿不听使唤，已经无法行走。（脱水 11%）',
-  ],
-  heat: [null, '浑身燥热，心跳加快。', '恶心、抽筋——这是热衰竭，必须马上降温。', '皮肤滚烫，意识模糊：中暑虚脱，无法行走。'],
-  cold: [null, '冷得发抖。', '抖得停不下来，手指僵硬：轻度失温。', '不再发抖，意识迟钝：重度失温。'],
-  tired: [null, '眼皮沉重，脚步虚浮。', '体力彻底耗尽，瘫倒在地。'],
-};
 
 /**
  * 推进时间。act: { met, kind: 'walk'|'work'|'rest'|'sleep', speed, long }
@@ -297,10 +273,6 @@ function advance(state, minutes, act) {
   return { elapsed, interrupted };
 }
 
-function fmtDur(min) {
-  return min >= 60 ? `${Math.floor(min / 60)} 小时${min % 60 ? ` ${min % 60} 分` : ''}` : `${min} 分钟`;
-}
-
 function canWalk(state) {
   const lv = state.levels;
   if (lv.heat >= 3) return '中暑虚脱，无法行走';
@@ -365,6 +337,7 @@ export function ailments(state) {
 
 export function actions(state) {
   if (state.over) return [];
+  if (state.act === 2) return actions2(state);
   const tile = here(state);
   const env = envNow(state);
   const list = [];
@@ -400,6 +373,7 @@ export function actions(state) {
 
 export function perform(state, id, arg) {
   if (state.over) return;
+  if (state.act === 2) return perform2(state, id);
   const tile = here(state);
   const body = state.body;
 
@@ -567,9 +541,10 @@ export function perform(state, id, arg) {
       break;
     }
     case 'enter': {
-      state.over = { win: true };
       say(state, '手轮转了三圈，闸门向内让开。门后是向下的台阶，凉而潮湿的空气扑在脸上，带着水、石头和机油的气味。很深的地方有一点光，不是火光。你回头看了一眼白得刺眼的地表，走了下去。', 'story');
-      break;
+      say(state, `【第一幕 · 地表】完。在地表活了 ${((state.t - state.t0) / 60).toFixed(0)} 小时，步行 ${state.stats.km} km。`, 'good');
+      initAct2(state);
+      return;
     }
     case 'digShelter': {
       const r = advance(state, 90 - (tile.shelterMin ?? 0), { met: 6, kind: 'work' });

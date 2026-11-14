@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { climate, createBody, heatFluxes, stepBody, dehydrationPct, causeOfDeath, DEFAULT_CLIMATE } from '../src/physics.js';
 import { generateWorld, tileAt } from '../src/world.js';
 import { newGame, perform, actions, envNow, here, scheduleStorms, ailments } from '../src/game.js';
+import { newCity, citySystems, cityTick, cityEnv, eventOn, peopleAt, NPCS, DISTRICTS } from '../src/city.js';
+import { residency as residencyOf } from '../src/act2.js';
 
 const at = (h) => climate(h * 60, DEFAULT_CLIMATE);
 
@@ -82,7 +84,7 @@ test('游戏流程：经绿洲找到入口、清沙、进入地下城可以通�
   // 策略：白天躲在遮阴沟里睡觉，夜里赶路；先到绿洲，再去入口
   let guard = 0;
   let reachedOasis = false;
-  while (!g.over && guard++ < 600) {
+  while (!g.over && g.act === 1 && guard++ < 600) {
     if (here(g).type === 'oasis') {
       reachedOasis = true;
       while (!g.over && (g.body.waterDeficit > 0.3 || g.inv.water < 2.9)) perform(g, 'take'); // 喝足、灌满
@@ -112,7 +114,7 @@ test('游戏流程：经绿洲找到入口、清沙、进入地下城可以通�
     perform(g, 'move', dx !== 0 ? { dx, dy: 0 } : { dx: 0, dy });
   }
   console.log('run', g.over, g.stats, dehydrationPct(g.body).toFixed(1), g.t / 60);
-  assert.equal(g.over?.win, true);
+  assert.equal(g.act, 2); // 进了闸门，第二幕开始
 
   const d = newGame({ seed: 7, difficulty: 'hard' });
   guard = 0;
@@ -190,10 +192,114 @@ test('地下城：入口要先搜出来、清完沙才能进；竖井口白天�
   perform(g, 'clearGate');
   assert.ok(ids().includes('enter'));
   perform(g, 'enter');
-  assert.equal(g.over.win, true);
+  assert.equal(g.act, 2);
+  assert.equal(g.c2.loc, 'gate');
 
   const b = createBody();
   const open = heatFluxes(b, at(14), { met: 1.2, shade: 0.5 });
   const draft = heatFluxes(b, at(14), { met: 1.2, shade: 0.5, draft: true });
   assert.ok(draft.sweatLh < open.sweatLh * 0.85, `${draft.sweatLh} vs ${open.sweatLh}`);
+});
+
+test('深泉的收支：电刚好够、粮略有余、水库溢流、检修日光田熄灯', () => {
+  const city = newCity(1);
+  const noon = citySystems(city, 12 * 60);
+  const night = citySystems(city, 2 * 60);
+  assert.ok(noon.demandMW <= noon.supplyMW && noon.demandMW > noon.supplyMW * 0.95, `${noon.demandMW}`);
+  assert.ok(night.demandMW < 50 && night.lit === 0);
+  assert.equal(noon.lit, 1);
+  let grow = 0;
+  let eatK = 0;
+  for (let h = 0; h < 24; h++) {
+    const x = citySystems(city, h * 60);
+    grow += x.growKcalH;
+    eatK += x.eatKcalH;
+    assert.ok(x.co2ppm > 500 && x.co2ppm < 1500);
+  }
+  assert.ok(grow > eatK && grow < eatK * 1.1, `${grow / eatK}`);
+  city.reservoirM3 = 90000;
+  const full = citySystems(city, 12 * 60);
+  assert.ok(full.overflowLs > 5 && full.overflowLs < 15, `${full.overflowLs}`);
+  // 找一个检修日
+  let d = 1;
+  while (eventOn(1, d) !== 'well') d++;
+  const dim = citySystems(city, d * 1440 + 12 * 60);
+  assert.ok(dim.lit < 0.85 && dim.lit > 0.5, `${dim.lit}`);
+  for (let t = 0; t < 30 * 1440; t += 60) cityTick(city, t);
+  assert.ok(city.foodDays > 30 && city.foodDays < 60, `${city.foodDays}`);
+});
+
+test('深泉的居民：有作息、能作保；三种工的生理负荷', () => {
+  assert.ok(peopleAt('market', 12 * 60).length >= 3);
+  assert.equal(peopleAt('market', 3 * 60).length, 0);
+  assert.ok(NPCS.filter((n) => n.sponsor).length >= 3);
+  for (const n of NPCS) for (const [, , where] of n.at) assert.ok(DISTRICTS[where], n.id);
+  // 热井巡检：按规程轮换冷却可以干完，体温明显升高；不轮换则撑不住
+  const run = (id, cooled, hours, met) => {
+    const b = createBody();
+    for (let i = 0; i < hours * 60; i++) {
+      const env = cityEnv(id, 15 * 60 + i, { cooled: cooled && i % 60 >= 40 });
+      stepBody(b, heatFluxes(b, env, { met: cooled && i % 60 >= 40 ? 1.2 : met, shelter: true, indoor: true }), 60);
+    }
+    return b;
+  };
+  const heat = run('heat', true, 4, 4.2);
+  const noBreak = run('heat', false, 4, 4.2);
+  const farm = run('farms', false, 6, 3.2);
+  console.log('work', heat.maxCoreT.toFixed(2), noBreak.maxCoreT.toFixed(2), farm.maxCoreT.toFixed(2), heat.waterDeficit.toFixed(1), farm.waterDeficit.toFixed(1));
+  assert.ok(heat.maxCoreT > 37.6 && heat.maxCoreT < 39.2, `heat ${heat.maxCoreT}`);
+  assert.ok(noBreak.maxCoreT > heat.maxCoreT + 0.4, `noBreak ${noBreak.maxCoreT}`);
+  assert.ok(farm.maxCoreT < 38.3, `farm ${farm.maxCoreT}`);
+});
+
+test('第二幕流程：检疫 → 干三个工 → 找到保人 → 落户', () => {
+  const g = newGame({ seed: 5, difficulty: 'easy' });
+  g.pos = { ...g.world.gate };
+  perform(g, 'search');
+  perform(g, 'clearGate');
+  perform(g, 'clearGate');
+  perform(g, 'enter');
+  const can = (id) => actions(g).some((a) => a.id === id && a.enabled);
+  assert.ok(!can('go:market'), '没过检疫不能进城');
+  // 等到医生上班再检疫（任何时候都能做，这里只推进时间）
+  perform(g, 'exam');
+  assert.equal(g.c2.credits, 40);
+  const goto = (path) => path.forEach((d) => perform(g, `go:${d}`));
+  goto(['market']);
+  perform(g, 'tap');
+  let guard = 0;
+  // 生活循环：饿了吃、困了睡、白天去光田上工并和组长说话
+  while (!g.over && !g.c2.resident && guard++ < 400) {
+    const h = (g.t % 1440) / 60;
+    const loc = g.c2.loc;
+    if (g.body.glycogenKcal < 900 && g.c2.credits >= 10) {
+      if (loc !== 'market') goto(loc === 'farms' ? ['market'] : loc === 'homes' ? ['market'] : ['market']);
+      if (can('meal')) perform(g, 'meal');
+      else if (can('snack')) perform(g, 'snack');
+      perform(g, 'tap');
+    }
+    if (g.body.fatigue > 60 || h >= 22 || h < 5) {
+      if (g.c2.loc !== 'homes') goto(g.c2.loc === 'market' ? ['homes'] : g.c2.loc === 'farms' ? ['homes'] : ['market', 'homes']);
+      if (can('bunk')) perform(g, 'bunk');
+      else if (can('nap')) perform(g, 'nap');
+      else perform(g, 'rest');
+      continue;
+    }
+    const r = residencyOf(g);
+    if (r.shiftsOk && r.sponsor) {
+      if (g.c2.loc !== 'hall') goto(g.c2.loc === 'market' ? ['hall'] : g.c2.loc === 'farms' ? ['market', 'hall'] : ['market', 'hall']);
+      if (can('register')) perform(g, 'register');
+      else perform(g, 'rest');
+      continue;
+    }
+    if (g.c2.loc !== 'farms') goto(g.c2.loc === 'market' ? ['farms'] : g.c2.loc === 'homes' ? ['farms'] : ['market', 'farms']);
+    if (can('talk:foreman')) perform(g, 'talk:foreman');
+    else if (can('work:farms')) perform(g, 'work:farms');
+    else perform(g, 'rest');
+  }
+  console.log('act2', { days: ((g.t - g.c2.t0) / 1440).toFixed(1), credits: g.c2.credits, shifts: g.c2.shifts, over: g.over, guard });
+  assert.equal(g.c2.resident, true);
+  assert.equal(g.over, null);
+  assert.ok(actions(g).some((a) => a.id === 'archive' && a.enabled) || g.c2.loc !== 'archive');
+  assert.ok(JSON.parse(JSON.stringify(g)).c2.resident);
 });

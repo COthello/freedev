@@ -163,7 +163,7 @@ export function heatFluxes(body, env, ctx) {
   }
 
   // 干热交换：对流 + 长波辐射，经过衣物与皮下组织两层热阻
-  const v = env.wind * (ctx.shelter ? 0.3 : 1) + (ctx.speed ?? 0);
+  const v = env.wind * (ctx.shelter && !ctx.indoor ? 0.3 : 1) + (ctx.speed ?? 0); // 室内的风速已是实际值
   const hc = Math.max(3, 8.3 * Math.pow(v, 0.6));
   const hr = 4.7;
   let tMrt;
