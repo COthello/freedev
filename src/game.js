@@ -66,10 +66,10 @@ export function newGame(cfg = {}) {
     over: null,
     flux: null,
   };
-  say(state, `${state.name}在一片陌生的沙漠中睁开眼睛。东方刚刚泛白，沙子还是凉的。`, 'story');
+  say(state, `公元 2226 年。${state.name}在沙漠中睁开眼睛。东方刚刚泛白，沙子还是凉的。两百年前这里据说是有河的。`, 'story');
   say(
     state,
-    `身上只有一件长袍、一只 3 L 的水囊（里面有 ${state.inv.water.toFixed(1)} L 水）和一张塑料布。必须先找到水。`,
+    `身上只有一件长袍、一只 3 L 的水囊（里面有 ${state.inv.water.toFixed(1)} L 水）和一张旧时代留下来的塑料布。地表已经养不活人了——老人们说，活路在地下。但得先找到水。`,
     'story',
   );
   look(state);
@@ -155,6 +155,16 @@ function stormAftermath(state) {
   }
   look(state);
 }
+
+// 旧时代的遗物。两百年前这里还不是沙漠
+const RELICS = [
+  '沙下露出一段发白的沥青，中间还有褪成灰色的虚线。一条路，通向哪里已经没人知道。',
+  '半埋的铁架歪在沙里，上面挂着碎成蛛网的深蓝色玻璃板——旧时代的人用它们从太阳里取电。现在太阳只剩下杀人这一种用处。',
+  '一块锈蚀的路牌，字迹只剩下一个箭头和“…水库 12 km”。箭头指着的方向，如今只有沙。',
+  '沙里翻出一只塑料瓶，两百年了还没烂。瓶身上印着一条河，蓝得不像真的。',
+  '一截倒伏的水泥杆，断口里露出铜线。有人把能拆的都拆走了，很久以前。',
+  '风蚀出半堵砖墙，墙根有一排贝壳——不是海贝，是河蚌。这里曾经有过岸。',
+];
 
 const SCORPION_RISK = { rock: 0.04, wadi: 0.03, flat: 0.015, dune: 0.005, oasis: 0.02 }; // 每小时
 
@@ -250,7 +260,7 @@ function advance(state, minutes, act) {
       }
     }
 
-    // 黎明最冷的时候，地下城呼出的暖湿空气会凝成一缕白雾
+    // 黎明最冷的时候，地下世界呼出的暖湿空气会凝成一缕白雾
     if (tod === 315 && !sleeping && env.storm === 0) {
       const g = state.world.gate;
       const dg = Math.hypot(g.x - state.pos.x, g.y - state.pos.y);
@@ -381,7 +391,7 @@ export function actions(state) {
     else add('forage', '割取多肉植物', `剩 ${tile.plants} 株 · 20 分钟`);
   }
   if (tile.gateFound && tile.gateDug < 1) add('clearGate', '清理门前的积沙', `1 小时 · 已清 ${tile.gateDug.toFixed(1)} / 1.0 m`);
-  if (tile.gateFound && tile.gateDug >= 1) add('enter', '推开石门，走进地下', '第一幕的终点');
+  if (tile.gateFound && tile.gateDug >= 1) add('enter', '转开闸门，走进地下', '第一幕的终点');
   if (!tile.shelter && tile.type !== 'oasis') add('digShelter', '挖遮阴沟', tile.shelterMin ? `还差 ${90 - tile.shelterMin} 分钟` : '90 分钟重体力');
   if (tile.still) add('packStill', '收起蒸馏器', `已凝结 ${tile.still.l.toFixed(2)} L`);
   else if (state.inv.sheet) add('still', '布置太阳能蒸馏器', '1 小时 · 只在白天产水');
@@ -442,9 +452,9 @@ export function perform(state, id, arg) {
       if (!c.dest.visited) {
         c.dest.visited = true;
         if (c.dest.type === 'oasis') {
-          say(state, '棕榈树下有一汪泉水。你跪下去，把脸埋进水里。喝够了才注意到：水是从一个石砌的方形渠口里流出来的。这不是天然的泉——有人把水从别处引到了这里。', 'good');
+          say(state, '棕榈树下有一汪泉水。你跪下去，把脸埋进水里。喝够了才注意到：水是从一截半埋的混凝土涵管里流出来的，管口的铁箅子早就锈穿了。这不是天然的泉——是地下的什么地方在往外溢水。', 'good');
         } else if (c.dest.shaft && env0.storm <= 0.5) {
-          say(state, '沙地上有一圈垒石围着的土丘，中间是一口笔直的竖井。井口往外吹着风，深处隐约有流水声。井壁上的凿痕整整齐齐。', 'hint');
+          say(state, '沙丘间露出一圈开裂的混凝土井圈，中间是一口笔直的竖井，井壁上嵌着一排锈断的爬梯。井口往外吹着风，深处隐约有流水声，还有一种低低的、不像是风的嗡鸣。', 'hint');
         }
       }
       break;
@@ -483,12 +493,12 @@ export function perform(state, id, arg) {
       }
       const gate = state.world.gate;
       if (tile.type === 'oasis') {
-        say(state, `你顺着渠口往里看：一条一人高的暗渠笔直地伸进黑暗，朝着${bearing(state.pos, gate)}方。渠顶每隔一段透下一点天光——地面上应该有一串竖井。沿着它们走，就能找到水的源头。`, 'hint');
+        say(state, `你顺着管口往里看：一条一人高的涵洞笔直地伸进黑暗，朝着${bearing(state.pos, gate)}方。洞顶每隔一段透下一点天光——地面上应该有一串竖井。沿着它们走，就能找到水的源头。`, 'hint');
       } else if (tile.shaft) {
-        say(state, `你爬上土丘四下望：同样的土丘每隔两公里一个，排成一条直线。一头通向${bearing(state.pos, state.world.oasis)}方，另一头指向${bearing(state.pos, gate)}方——水是从那边流过来的。井太深，够不着水，但井口的风在白天是凉的。`, 'hint');
+        say(state, `你爬上井圈四下望：同样的井圈每隔两公里一个，排成一条直线。一头通向${bearing(state.pos, state.world.oasis)}方，另一头指向${bearing(state.pos, gate)}方——水是从那边流过来的。井太深，够不着水，但井口的风在白天是凉的。`, 'hint');
       } else if (tile.gate) {
         tile.gateFound = true;
-        say(state, '岩壁根部有一道过于平直的石缝，被流沙埋了大半。你扒开一点沙：是一道门楣，上面刻着你不认识的字。缝里往外渗着凉气。', 'good');
+        say(state, '岩壁根部有一道过于平直的缝，被流沙埋了大半。你扒开一点沙：是一扇金属闸门的上沿，漆皮下压着一行旧时代的字，风沙磨得只剩半串编号。缝里往外渗着凉气。', 'good');
       } else if (tile.pool > 0) {
         tile.poolFound = true;
         say(state, `岩缝深处有一个背阴的石窝，里面积着约 ${tile.pool.toFixed(1)} L 雨水。`, 'good');
@@ -499,7 +509,8 @@ export function perform(state, id, arg) {
       } else if (tile.type === 'rock') {
         say(state, '岩石间只有风化的碎屑。不过岩壁下有一片可靠的阴影。');
       } else {
-        say(state, '除了沙砾，什么也没有。');
+        const relic = RELICS[Math.floor(hash01(state.seed + 61, tile.x * 97 + tile.y) * RELICS.length * 2.5)];
+        say(state, relic ?? '除了沙砾，什么也没有。', relic ? 'story' : 'info');
       }
       break;
     }
@@ -551,13 +562,13 @@ export function perform(state, id, arg) {
       const r = advance(state, 60, { met: 6, kind: 'work' });
       if (state.over) return;
       tile.gateDug = Math.min(1, tile.gateDug + (0.5 * r.elapsed) / 60);
-      if (tile.gateDug >= 1) say(state, '最后一捧沙被扒开，整扇石门露了出来。门轴上没有锈，只有沙。', 'good');
+      if (tile.gateDug >= 1) say(state, '最后一捧沙被扒开，整扇闸门露了出来。门中央有一只手轮。两百年了，轴上居然没有锈——有人，或者有什么东西，一直在给它上油。', 'good');
       else say(state, `扒了 ${fmtDur(r.elapsed)}的沙，门露出了 ${Math.round(tile.gateDug * 100)}%。`);
       break;
     }
     case 'enter': {
       state.over = { win: true };
-      say(state, '石门比看上去轻。门后是向下的台阶，凉而潮湿的空气扑在脸上，带着水和石头的气味。很深的地方有一点光。你回头看了一眼白得刺眼的沙漠，走了下去。', 'story');
+      say(state, '手轮转了三圈，闸门向内让开。门后是向下的台阶，凉而潮湿的空气扑在脸上，带着水、石头和机油的气味。很深的地方有一点光，不是火光。你回头看了一眼白得刺眼的地表，走了下去。', 'story');
       break;
     }
     case 'digShelter': {

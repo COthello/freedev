@@ -67,8 +67,8 @@ export function generateWorld(seed) {
         still: null,
         searched: false,
         visited: false,
-        shaft: false, // 暗渠的竖井
-        gate: false, // 地下城入口
+        shaft: false, // 涵洞的通风竖井
+        gate: false, // 地下世界入口
         gateFound: false,
         gateDug: 0, // 已清开的积沙 m
         seen: false,
@@ -120,7 +120,7 @@ export function generateWorld(seed) {
   const s = tileAt(world, start.x, start.y);
   Object.assign(s, { type: 'flat', shade: 0, plants: 0, pool: 0, waterDepth: null });
 
-  // 地下城：绿洲的水其实来自一条人工暗渠，暗渠的源头就是地下城。
+  // 地下世界：绿洲的水其实是从一条旧时代的涵洞里溢出来的，涵洞另一头就是地下世界。
   // 入口在绿洲另一侧 6–8 km 外的岩壁下，沿途每隔 2 km 有一口通风竖井。
   const away = Math.atan2(oasis.y - start.y, oasis.x - start.x);
   let gate;

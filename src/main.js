@@ -177,7 +177,7 @@ function drawScene() {
     }
   }
   if (tile.shaft) {
-    // 竖井：弃土堆成的环形土丘，中间一口黑井
+    // 竖井：沙堆里露出的井圈，中间一口黑井
     const mx = w * 0.72;
     ctx.fillStyle = dark([196, 164, 112]);
     ctx.beginPath();
@@ -194,7 +194,7 @@ function drawScene() {
     ctx.fill();
   }
   if (tile.gateFound) {
-    // 岩壁根部的石门，积沙随清理而降低
+    // 岩壁根部的闸门，积沙随清理而降低
     const dx0 = w * 0.655;
     const dw = 34;
     const dh = 44;
@@ -333,7 +333,7 @@ function drawScene() {
   $('storm').hidden = !(env.storm > 0 || coming);
   $('storm').textContent = env.storm > 0 ? '沙暴' : '沙暴将至';
 
-  $('place').textContent = `${tile.gateFound ? '地下城入口' : tile.shaft ? `${TERRAIN[tile.type].name} · 竖井` : TERRAIN[tile.type].name}${tile.shelter ? ' · 遮阴沟' : tile.shade > 0 ? ' · 有阴凉' : ''}`;
+  $('place').textContent = `${tile.gateFound ? '地下世界入口' : tile.shaft ? `${TERRAIN[tile.type].name} · 竖井` : TERRAIN[tile.type].name}${tile.shelter ? ' · 遮阴沟' : tile.shade > 0 ? ' · 有阴凉' : ''}`;
 }
 
 // —— 地图 ——
@@ -522,8 +522,8 @@ function renderEnd() {
   const c = clock(state);
   const b = state.body;
   el.hidden = false;
-  el.innerHTML = `<h2>${state.over.win ? '你走进了地下城' : `${esc(state.name)}没能走出沙漠`}</h2>
-    <p>${state.over.win ? '第一幕结束。沙漠留在了头顶上，接下来的故事在地下。' : esc(state.over.cause) + '。'}</p>
+  el.innerHTML = `<h2>${state.over.win ? '你走进了地下世界' : `${esc(state.name)}没能走出沙漠`}</h2>
+    <p>${state.over.win ? '第一幕结束。地表留在了头顶上。下面是什么人建的、为什么还在运转、为什么没人回来过——答案都在更深的地方。' : esc(state.over.cause) + '。'}</p>
     <dl class="readout" style="max-width:24em">
       <dt>存活时间</dt><dd>${c.survivedH.toFixed(1)} 小时</dd>
       <dt>步行距离</dt><dd>${state.stats.km} km</dd>
