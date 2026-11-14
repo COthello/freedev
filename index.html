@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>生于沙海</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 布局：上方一条随时间变化的沙漠天空；下方左边是地图与移动，右边是仪表、行动与日志。 */
+:root {
+  --bg: #e6e1d6;
+  --panel: #f3f0e8;
+  --ink: #26222e;
+  --muted: #6d6677;
+  --line: #cfc8ba;
+  --sun: #b9770e;
+  --night: #36437f;
+  --ok: #3f7d4e;
+  --warn: #b26a00;
+  --bad: #b3261e;
+  --water: #1f6f9c;
+  --fog: #bdb6a8;
+  --display: "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --body: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15141d; --panel: #1f1d2a; --ink: #ebe4d6; --muted: #9a93a6; --line: #363246;
+    --sun: #e8b04a; --night: #8e9be0; --ok: #7cc48c; --warn: #f0b24d; --bad: #f2776c;
+    --water: #6bbbe6; --fog: #2a2836; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15141d; --panel: #1f1d2a; --ink: #ebe4d6; --muted: #9a93a6; --line: #363246;
+  --sun: #e8b04a; --night: #8e9be0; --ok: #7cc48c; --warn: #f0b24d; --bad: #f2776c;
+  --water: #6bbbe6; --fog: #2a2836; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 40px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+h1 { font-family: var(--display); font-weight: 900; font-size: 28px; margin: 0; letter-spacing: 0.04em; }
+.act { color: var(--muted); font-size: 13px; letter-spacing: 0.12em; }
+.clock { margin-left: auto; font-family: var(--mono); font-size: 14px; display: flex; gap: 12px; align-items: baseline; }
+.clock b { font-size: 20px; font-weight: 600; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 16px; margin: 0 0 8px; text-wrap: balance; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+button, input, select { font: inherit; color: inherit; }
+button {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; cursor: pointer; text-align: left;
+}
+button:hover:not(:disabled) { border-color: var(--sun); }
+button:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible { outline: 2px solid var(--sun); outline-offset: 2px; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button small { display: block; color: var(--muted); font-size: 12px; }
+.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); text-align: center; padding: 10px 18px; font-weight: 600; }
+.link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; font-size: 13px; }
+
+/* —— 出生设定 —— */
+#setup { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+#setup p { margin: 0 0 12px; max-width: 34em; }
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+.form input, .form select { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px; color: var(--ink); width: 100%; }
+.form .wide { grid-column: 1 / -1; }
+.derived { border-top: 2px solid var(--ink); padding-top: 12px; }
+.derived dl, .readout { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; margin: 0; }
+.derived dt, .readout dt { color: var(--muted); }
+.derived dd, .readout dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* —— 游戏 —— */
+#scene { width: 100%; aspect-ratio: 16 / 5; min-height: 150px; max-width: 100%; display: block; border-radius: 4px; }
+#play { display: grid; gap: 20px 24px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+#sceneBox { grid-column: 1 / -1; position: relative; }
+.col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+#place { position: absolute; left: 10px; bottom: 8px; background: rgba(20, 18, 28, 0.62); color: #f4eedf; padding: 2px 8px; border-radius: 3px; font-size: 13px; }
+section { min-width: 0; }
+.meter { display: grid; grid-template-columns: 4.5em minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; margin-bottom: 10px; }
+.meter .bar { position: relative; height: 10px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.meter .bar i { position: absolute; inset: 0 auto 0 0; background: var(--ok); }
+.meter .bar i.warn { background: var(--warn); } .meter .bar i.bad { background: var(--bad); }
+.meter .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--panel); }
+.meter .note { grid-column: 2 / -1; font-size: 12px; color: var(--muted); }
+.meter .note.warn { color: var(--warn); } .meter .note.bad { color: var(--bad); }
+#map { width: 100%; max-width: 100%; aspect-ratio: 15 / 11; display: block; border: 1px solid var(--line); border-radius: 4px; touch-action: manipulation; cursor: pointer; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; border-radius: 1px; }
+.moves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.flux { display: grid; grid-template-columns: 5.5em minmax(0, 1fr) 5.5em; gap: 5px 8px; align-items: center; font-size: 13px; }
+.flux .track { position: relative; height: 8px; }
+.flux .track::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+.flux .track i { position: absolute; top: 0; bottom: 0; background: var(--sun); border-radius: 1px; }
+.flux .track i.neg { background: var(--water); }
+.flux span:last-child { text-align: right; }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+#log { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+#log li { display: grid; grid-template-columns: 5.6em minmax(0, 1fr); gap: 8px; }
+#log time { color: var(--muted); font-family: var(--mono); font-size: 12px; padding-top: 2px; }
+#log .warn { color: var(--warn); } #log .danger, #log .death { color: var(--bad); font-weight: 600; }
+#log .good { color: var(--ok); } #log .hint { color: var(--night); } #log .story { font-family: var(--display); }
+#log .env { color: var(--muted); }
+#end { border: 2px solid var(--ink); border-radius: 4px; padding: 16px; background: var(--panel); }
+#end h2 { font-size: 22px; }
+#end .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+@media (max-width: 760px) {
+  #setup { grid-template-columns: minmax(0, 1fr); }
+  #play { grid-template-columns: minmax(0, 1fr); }
+  .col { display: contents; }
+  #vitals { order: 1; } #actionsBox { order: 2; } #mapBox { order: 3; } #logBox { order: 4; } #phys { order: 5; }
+  #scene { aspect-ratio: 16 / 8; }
+  h1 { font-size: 24px; }
+}
+@media (max-width: 420px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>生于沙海</h1>
+    <span class="act">第一幕 · 沙漠</span>
+    <span class="clock" id="clock" hidden><span>第 <b id="day">1</b> 天</span><b id="time">05:00</b><button class="link" id="quit" type="button">重新出生</button></span>
+  </header>
+
+  <div id="setup">
+    <div>
+      <h2>你将在日出前醒来</h2>
+      <p>这是一片夏天的亚热带沙漠：黎明 19°C，午后 43°C，正午沙面超过 60°C。空气极干，汗一出就蒸发，所以你感觉不到自己在流汗，但水在一直流失。</p>
+      <p>身体按真实的热平衡运转：代谢产热、日照、对流与辐射、出汗蒸发。失水达到体重的 15%，或核心体温越过 42°C，都会致命。</p>
+      <p>十几公里外有一处绿洲。找到它，第一幕就结束了。</p>
+      <form class="form" id="form">
+        <label class="wide">名字<input id="f-name" maxlength="12" value="阿洛" autocomplete="off"></label>
+        <label>性别<select id="f-sex"><option value="male">男</option><option value="female">女</option></select></label>
+        <label>年龄<input id="f-age" type="number" min="16" max="70" value="26"></label>
+        <label>身高 cm<input id="f-height" type="number" min="140" max="210" value="172"></label>
+        <label>体重 kg<input id="f-mass" type="number" min="40" max="130" value="68"></label>
+        <label>随身的水<select id="f-diff"><option value="easy">宽松 · 3 L</option><option value="normal" selected>标准 · 2 L</option><option value="hard">严酷 · 1 L</option></select></label>
+        <label>沙漠编号（留空则随机）<input id="f-seed" inputmode="numeric" placeholder="随机" autocomplete="off"></label>
+        <button class="primary wide" type="submit">睁开眼睛</button>
+      </form>
+    </div>
+    <div class="derived">
+      <h2>这副身体</h2>
+      <dl id="derived"></dl>
+      <p style="margin-top:12px;color:var(--muted);font-size:13px">体表面积越大，晒到的太阳和能蒸发的汗都越多；体重越大，升温越慢，但走路产热也越多。</p>
+    </div>
+  </div>
+
+  <div id="end" hidden></div>
+
+  <div id="play" hidden>
+    <div id="sceneBox"><canvas id="scene" aria-label="此刻的沙漠"></canvas><span id="place"></span></div>
+    <div class="col">
+      <section id="vitals"><h2>身体</h2><div id="meters"></div></section>
+      <section id="actionsBox"><h2>行动</h2><div class="acts" id="acts"></div></section>
+      <section id="phys">
+        <div class="cols">
+          <div><h2>环境</h2><dl class="readout" id="env"></dl></div>
+          <div><h2 id="fluxTitle">热平衡</h2><div class="flux" id="flux"></div></div>
+        </div>
+      </section>
+    </div>
+    <div class="col">
+      <section id="mapBox">
+        <h2>周围 <span class="act">每格 1 km · 点相邻的格子或按方向键移动</span></h2>
+        <canvas id="map" tabindex="0" aria-label="地图，点击相邻的格子移动，或使用方向键"></canvas>
+        <div class="legend"><span><i style="background:#d9c08a"></i>砾石平原</span><span><i style="background:#e9a85a"></i>沙丘</span><span><i style="background:#7d6a5d"></i>岩石</span><span><i style="background:#9aa37a"></i>干河床</span><span><i style="background:#2f8f6a"></i>绿洲</span><span><i style="background:#1f6f9c;border-radius:50%"></i>水</span></div>
+        <div class="moves" id="moves"></div>
+      </section>
+      <section id="logBox"><h2>经过</h2><ol id="log"></ol></section>
+    </div>
+  </div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
